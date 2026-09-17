@@ -78,22 +78,16 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Plan BSS (Soporta archivos HTML disfrazados de .xls o Excel real)
+    # 2. Parsear Plan BSS (Leyendo explícitamente como tabla HTML para evitar errores de formato xls)
     bytes_data = xls_file.read()
-    df_xls = None
     try:
-      # Intentar leer como tabla HTML primero (caso común en PlanBSS.xls)
       dfs = pd.read_html(io.BytesIO(bytes_data))
       df_xls = dfs[0]
-    except Exception:
-      # Si falla, intentar leer como Excel nativo
-      try:
-        df_xls = pd.read_excel(io.BytesIO(bytes_data))
-      except Exception as e_excel:
-        st.error(f"No se pudo interpretar el archivo Plan BSS: {e_excel}")
-        st.stop()
+    except Exception as e_html:
+      st.error(f"No se pudo interpretar el archivo Plan BSS como tabla HTML: {e_html}")
+      st.stop()
 
-    # Normalizar nombres de columnas a minúsculas para evitar errores de mayúsculas/minúsculas
+    # Normalizar nombres de columnas a minúsculas
     df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
 
     if "sector" in df_xls.columns and "power" in df_xls.columns:
@@ -109,7 +103,7 @@ if xml_file is not None and xls_file is not None:
           .str.strip()
       )
 
-      # Manejar columna mimo / dlMimoMode si existe
+      # Manejar columna mimo si existe
       mimo_col = "mimo" if "mimo" in df_xls.columns else None
       if mimo_col:
         df_xls["Excel_dlMimoMode"] = df_xls[mimo_col].fillna("").astype(str).str.strip()
