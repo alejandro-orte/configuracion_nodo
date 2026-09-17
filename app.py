@@ -13,7 +13,8 @@ st.set_page_config(
 
 st.title("📡 Validador y Comparador: XML vs Plan BSS")
 
-# Parser nativo de HTML usando solo bibliotecas estándar de Python (sin dependencias externas)
+
+# Parser nativo de HTML usando solo bibliotecas estándar de Python
 class HTMLTableParser(HTMLParser):
 
   def __init__(self):
@@ -120,15 +121,13 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Plan BSS (Soporta Excel real o tablas HTML usando el parser nativo de Python)
+    # 2. Parsear Plan BSS
     bytes_data = xls_file.read()
     df_xls = None
 
     try:
-      # Intentar primero como Excel nativo (.xlsx / .xls binario)
       df_xls = pd.read_excel(io.BytesIO(bytes_data))
     except Exception:
-      # Si falla, interpretarlo como tabla HTML usando HTMLParser nativo
       try:
         html_content = bytes_data.decode("utf-8", errors="ignore")
         parser = HTMLTableParser()
@@ -142,13 +141,11 @@ if xml_file is not None and xls_file is not None:
         st.error(f"No se pudo leer el archivo Plan BSS: {e_html}")
         st.stop()
 
-    # Normalizar nombres de columnas a minúsculas
     df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
 
     if "sector" in df_xls.columns and "power" in df_xls.columns:
       df_xls["Sector"] = df_xls["sector"].astype(str).str.strip()
 
-      # Limpiar el punto del power (ej: "42.3" -> "423" y extraer antes del '&' si aplica)
       df_xls["Excel_pMax"] = (
           df_xls["power"]
           .astype(str)
@@ -158,7 +155,6 @@ if xml_file is not None and xls_file is not None:
           .str.strip()
       )
 
-      # Manejar columna mimo si existe
       mimo_col = "mimo" if "mimo" in df_xls.columns else None
       if mimo_col:
         df_xls["Excel_dlMimoMode"] = df_xls[mimo_col].fillna("").astype(str).str.strip()
@@ -177,13 +173,23 @@ if xml_file is not None and xls_file is not None:
             "No se encontraron sectores coincidentes entre el XML y el Plan BSS. Revisa los nombres de los sectores."
         )
       else:
-        # Normalizar valores para comparación
+        # Normalizar pMax XML y quitar cero al final si existe
         merged_df["XML_pMax"] = (
             merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
             .astype(str)
             .str.strip()
         )
+        merged_df["XML_pMax"] = merged_df["XML_pMax"].apply(
+            lambda x: x[:-1] if x.endswith("0") else x
+        )
         merged_df["Excel_pMax"] = merged_df["Excel_pMax"].astype(str).str.strip()
+
+        # Normalizar valores MIMO para extraer solo el formato (ej: 4x4, 4x2)
+        def extract_mimo(val):
+          if not val:
+            return ""
+          match = re.search(r"(\d+[xX]\d+)", str(val))
+          return match.group(1).lower() if match else str(val).lower().strip()
 
         merged_df["XML_dlMimoMode"] = (
             merged_df.get("XML_dlMimoMode", pd.Series([""] * len(merged_df)))
@@ -195,10 +201,17 @@ if xml_file is not None and xls_file is not None:
             merged_df["Excel_dlMimoMode"].fillna("").astype(str).str.strip()
         )
 
+        merged_df["XML_Mimo_Clean"] = merged_df["XML_dlMimoMode"].apply(
+            extract_mimo
+        )
+        merged_df["Excel_Mimo_Clean"] = merged_df["Excel_dlMimoMode"].apply(
+            extract_mimo
+        )
+
         # Evaluaciones de igualdad
         merged_df["pMax_Igual"] = merged_df["XML_pMax"] == merged_df["Excel_pMax"]
         merged_df["Mimo_Igual"] = (
-            merged_df["XML_dlMimoMode"] == merged_df["Excel_dlMimoMode"]
+            merged_df["XML_Mimo_Clean"] == merged_df["Excel_Mimo_Clean"]
         )
 
         st.divider()
@@ -236,7 +249,6 @@ if xml_file is not None and xls_file is not None:
               for val in col
           ]
 
-        # Usar los nuevos nombres renombrados en el subset
         st.dataframe(
             display_table.style.apply(
                 color_matching, subset=["pMax Coincide?", "MIMO Coincide?"]
