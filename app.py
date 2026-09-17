@@ -79,19 +79,31 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Plan BSS usando BeautifulSoup (parser nativo 'html.parser')
+    # 2. Parsear Plan BSS (Soporte automático para Excel nativo .xlsx / .xls o HTML disfrazado)
     bytes_data = xls_file.read()
+    df_xls = None
+
+    # Intentar primero como Excel nativo (.xlsx / openpyxl)
     try:
-      soup = BeautifulSoup(bytes_data, "html.parser")
-      table = soup.find("table")
-      if table:
-        df_xls = pd.read_html(str(table))[0]
-      else:
-        # Fallback a lectura general si no encuentra tag <table> estricto
-        df_xls = pd.read_html(io.BytesIO(bytes_data), flavor="bs4")[0]
-    except Exception as e_html:
-      st.error(f"No se pudo interpretar el archivo Plan BSS: {e_html}")
-      st.stop()
+      df_xls = pd.read_excel(io.BytesIO(bytes_data), engine="openpyxl")
+    except Exception:
+      # Si falla, intentar como Excel binario antiguo (.xls)
+      try:
+        df_xls = pd.read_excel(io.BytesIO(bytes_data))
+      except Exception:
+        # Si también falla, interpretarlo como tabla HTML con BeautifulSoup
+        try:
+          soup = BeautifulSoup(bytes_data, "html.parser")
+          table = soup.find("table")
+          if table:
+            df_xls = pd.read_html(str(table), flavor="bs4")[0]
+          else:
+            df_xls = pd.read_html(io.BytesIO(bytes_data), flavor="bs4")[0]
+        except Exception as e_final:
+          st.error(
+              f"No se pudo leer el archivo Plan BSS en ningun formato: {e_final}"
+          )
+          st.stop()
 
     # Normalizar nombres de columnas a minúsculas
     df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
