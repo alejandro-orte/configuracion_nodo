@@ -236,9 +236,10 @@ if xml_file is not None and xls_file is not None:
               for val in col
           ]
 
+        # Usar los nuevos nombres renombrados en el subset
         st.dataframe(
             display_table.style.apply(
-                color_matching, subset=["pMax_Igual", "Mimo_Igual"]
+                color_matching, subset=["pMax Coincide?", "MIMO Coincide?"]
             ),
             use_container_width=True,
             hide_index=True,
