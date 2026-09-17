@@ -1,3 +1,4 @@
+import io
 import re
 import xml.etree.ElementTree as ET
 import pandas as pd
@@ -77,18 +78,28 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Excel / Plan BSS (Soporta formato HTML disfrazado de XLS)
+    # 2. Parsear Plan BSS (Soporta archivos HTML disfrazados de .xls o Excel real)
+    bytes_data = xls_file.read()
+    df_xls = None
     try:
-      df_xls_list = pd.read_html(xls_file)
-      df_xls = df_xls_list[0]
+      # Intentar leer como tabla HTML primero (caso común en PlanBSS.xls)
+      dfs = pd.read_html(io.BytesIO(bytes_data))
+      df_xls = dfs[0]
     except Exception:
-      xls_file.seek(0)
-      df_xls = pd.read_excel(xls_file)
+      # Si falla, intentar leer como Excel nativo
+      try:
+        df_xls = pd.read_excel(io.BytesIO(bytes_data))
+      except Exception as e_excel:
+        st.error(f"No se pudo interpretar el archivo Plan BSS: {e_excel}")
+        st.stop()
 
-    # Filtrar columnas relevantes del Excel
+    # Normalizar nombres de columnas a minúsculas para evitar errores de mayúsculas/minúsculas
+    df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
+
     if "sector" in df_xls.columns and "power" in df_xls.columns:
-      df_xls["Sector"] = df_xls["sector"].astype(str)
-      # Limpiar el punto del power (ej: "42.3" -> "423" o manejo de cadenas combinadas)
+      df_xls["Sector"] = df_xls["sector"].astype(str).str.strip()
+
+      # Limpiar el punto del power (ej: "42.3" -> "423" y extraer antes del '&' si aplica)
       df_xls["Excel_pMax"] = (
           df_xls["power"]
           .astype(str)
@@ -97,11 +108,13 @@ if xml_file is not None and xls_file is not None:
           .str[0]
           .str.strip()
       )
-      df_xls["Excel_dlMimoMode"] = (
-          df_xls["mimo"].astype(str).str.strip()
-          if "mimo" in df_xls.columns
-          else ""
-      )
+
+      # Manejar columna mimo / dlMimoMode si existe
+      mimo_col = "mimo" if "mimo" in df_xls.columns else None
+      if mimo_col:
+        df_xls["Excel_dlMimoMode"] = df_xls[mimo_col].fillna("").astype(str).str.strip()
+      else:
+        df_xls["Excel_dlMimoMode"] = ""
 
       df_plan = df_xls[["Sector", "Excel_pMax", "Excel_dlMimoMode"]].drop_duplicates(
           subset=["Sector"]
@@ -110,67 +123,90 @@ if xml_file is not None and xls_file is not None:
       # 3. Cruzar XML y Plan BSS por Sector
       merged_df = pd.merge(df_xml, df_plan, on="Sector", how="inner")
 
-      # Limpieza y normalización para comparación
-      merged_df["XML_pMax"] = merged_df.get("XML_pMax", pd.Series([None] * len(merged_df))).astype(str).str.strip()
-      merged_df["Excel_pMax"] = merged_df["Excel_pMax"].astype(str).str.strip()
+      if merged_df.empty:
+        st.warning(
+            "No se encontraron sectores coincidentes entre el XML y el Plan BSS. Revisa los nombres de los sectores."
+        )
+      else:
+        # Normalizar valores para comparación
+        merged_df["XML_pMax"] = (
+            merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
+            .astype(str)
+            .str.strip()
+        )
+        merged_df["Excel_pMax"] = merged_df["Excel_pMax"].astype(str).str.strip()
 
-      # Normalizar MIMO para comparar texto de forma flexible
-      merged_df["XML_dlMimoMode"] = merged_df.get("XML_dlMimoMode", pd.Series([""] * len(merged_df))).fillna("").astype(str)
-      merged_df["Excel_dlMimoMode"] = merged_df["Excel_dlMimoMode"].fillna("").astype(str)
+        merged_df["XML_dlMimoMode"] = (
+            merged_df.get("XML_dlMimoMode", pd.Series([""] * len(merged_df)))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        merged_df["Excel_dlMimoMode"] = (
+            merged_df["Excel_dlMimoMode"].fillna("").astype(str).str.strip()
+        )
 
-      # Evaluar igualdades
-      merged_df["pMax_Igual"] = merged_df["XML_pMax"] == merged_df["Excel_pMax"]
-      
-      # Mostrar resultados visuales
-      st.divider()
-      st.subheader("🔍 Resultados de la Comparación (XML vs Plan BSS)")
+        # Evaluaciones de igualdad
+        merged_df["pMax_Igual"] = merged_df["XML_pMax"] == merged_df["Excel_pMax"]
+        merged_df["Mimo_Igual"] = (
+            merged_df["XML_dlMimoMode"] == merged_df["Excel_dlMimoMode"]
+        )
 
-      # Dar formato amigable para visualización
-      display_table = merged_df[
-          [
-              "Sector",
-              "XML_pMax",
-              "Excel_pMax",
-              "pMax_Igual",
-              "XML_dlMimoMode",
-              "Excel_dlMimoMode",
-          ]
-      ].rename(
-          columns={
-              "Sector": "Sector",
-              "XML_pMax": "XML pMax",
-              "Excel_pMax": "Excel Power (Sin punto)",
-              "pMax_Igual": "pMax Coincide?",
-              "XML_dlMimoMode": "XML MIMO",
-              "Excel_dlMimoMode": "Excel MIMO",
-          }
-      )
+        st.divider()
+        st.subheader("🔍 Resultados de la Comparación (XML vs Plan BSS)")
 
-      def color_matching(val):
-        color = "#d4edda" if val else "#f8d7da"
-        return f"background-color: {color}"
+        display_table = merged_df[
+            [
+                "Sector",
+                "XML_pMax",
+                "Excel_pMax",
+                "pMax_Igual",
+                "XML_dlMimoMode",
+                "Excel_dlMimoMode",
+                "Mimo_Igual",
+            ]
+        ].rename(
+            columns={
+                "Sector": "Sector",
+                "XML_pMax": "XML pMax",
+                "Excel_pMax": "Excel Power (Sin punto)",
+                "pMax_Igual": "pMax Coincide?",
+                "XML_dlMimoMode": "XML MIMO",
+                "Excel_dlMimoMode": "Excel MIMO",
+                "Mimo_Igual": "MIMO Coincide?",
+            }
+        )
 
-      st.dataframe(
-          display_table.style.applymap(color_matching, subset=["pMax_Igual"]),
-          use_container_width=True,
-          hide_index=True,
-      )
+        def color_matching(val):
+          color = "#d4edda" if val else "#f8d7da"
+          return f"background-color: {color}"
 
-      st.divider()
-      st.subheader("📥 Descargar Reporte de Comparación")
-      csv_data = display_table.to_csv(index=False).encode("utf-8")
-      st.download_button(
-          label="📥 Descargar Comparativa en CSV",
-          data=csv_data,
-          file_name="comparacion_xml_planbss.csv",
-          mime="text/csv",
-      )
+        st.dataframe(
+            display_table.style.applymap(
+                color_matching, subset=["pMax_Igual", "Mimo_Igual"]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.divider()
+        st.subheader("📥 Descargar Reporte de Comparación")
+        csv_data = display_table.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Descargar Comparativa en CSV",
+            data=csv_data,
+            file_name="comparacion_xml_planbss.csv",
+            mime="text/csv",
+        )
 
     else:
-      st.error("El archivo Plan BSS no contiene las columnas esperadas ('sector', 'power').")
+      st.error(
+          "El archivo Plan BSS no contiene las columnas requeridas 'sector' y 'power'."
+      )
 
   except Exception as e:
     st.error(f"Ocurrió un error al procesar los archivos: {e}")
 else:
-  info_msg = "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS en formato Excel) para iniciar la comparación."
-  st.info(info_msg)
+  st.info(
+      "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS) para iniciar la comparación."
+  )
