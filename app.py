@@ -11,7 +11,6 @@ st.set_page_config(
 
 st.title("📡 Extractor de Parámetros de Archivos XML (SCF)")
 
-# Diccionario de mapeo de celdas
 cell_mapping = {
     "LNCEL-101": "R1",
     "LNCEL-102": "R2",
@@ -49,14 +48,12 @@ if uploaded_file is not None:
     st.error(f"Error al leer el archivo XML: {e}")
     st.stop()
 
-  # 1. Extraer datos agrupados por managedObject
   data = []
   for elem in root.iter():
     if elem.tag.endswith("managedObject"):
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      # Mapeo de celda exacta
       mapped_dist_name = dist_name
       for old_cell, new_cell in cell_mapping.items():
         pattern = r"\b" + re.escape(old_cell) + r"\b"
@@ -64,7 +61,6 @@ if uploaded_file is not None:
           mapped_dist_name = new_cell
           break
 
-      # Extraer todos los parámetros de este objeto en un diccionario
       params = {}
       for p in elem.findall(".//"):
         if p.tag.endswith("p") and "name" in p.attrib:
@@ -75,7 +71,7 @@ if uploaded_file is not None:
               "class": cls,
               "distName": dist_name,
               "distName_mapped": mapped_dist_name,
-              **params,  # Desempaquetamos los parámetros como columnas individuales
+              **params,
           }
       )
 
@@ -86,40 +82,42 @@ if uploaded_file is not None:
   df = pd.DataFrame(data)
 
   st.divider()
-  st.subheader("🎯 Vista Resumida por Celda (con pMax y dlMimoMode)")
+  st.subheader("🎯 Vista Resumida por Celda (LNCEL Principal)")
 
-  # Filtrar solo objetos que correspondan a celdas mapeadas (opcional, o mostrar todos)
-  # Verificamos qué columnas de parámetros existen en el XML
-  available_cols = df.columns.tolist()
+  # Filtrar estrictamente la clase principal de celdas LTE (NOKLTE:LNCEL) y las mapeadas
+  lncel_df = df[
+      (df["class"] == "NOKLTE:LNCEL")
+      & (df["distName_mapped"].isin(cell_mapping.values()))
+  ].copy()
 
-  # Seleccionar columnas principales a mostrar al inicio
-  base_display = ["distName_mapped", "class"]
+  if not lncel_df.empty:
+    # Asegurar que existan las columnas pMax y dlMimoMode para evitar errores si no están
+    for col in ["pMax", "dlMimoMode", "tac"]:
+      if col not in lncel_df.columns:
+        lncel_df[col] = "N/A"
 
-  # Añadir parámetros clave si existen en el XML
-  extra_cols = []
-  for col_candidate in ["pMax", "dlMimoMode", "earfcn", "dlEarfcn", "tac"]:
-    if col_candidate in available_cols:
-      extra_cols.append(col_candidate)
+    # Organizar estrictamente el orden de las columnas solicitado
+    display_columns = [
+        "distName_mapped",
+        "pMax",
+        "dlMimoMode",
+        "class",
+        "tac",
+        "distName",
+    ]
+    # Mantener solo las columnas que realmente existan en el DataFrame
+    final_cols = [c for c in display_columns if c in lncel_df.columns]
 
-  # Columnas finales organizadas
-  display_columns = base_display + extra_cols + ["distName"]
-
-  # Filtrar el DataFrame para mostrar filas que hayan sido mapeadas a celdas cortas (L1, R1, etc.)
-  mapped_only_df = df[df["distName_mapped"].isin(cell_mapping.values())]
-
-  if not mapped_only_df.empty:
     st.dataframe(
-        mapped_only_df[display_columns], use_container_width=True, hide_index=True
+        lncel_df[final_cols], use_container_width=True, hide_index=True
     )
   else:
-    st.info("No se encontraron objetos que coincidan con el mapeo de celdas configurado.")
-    st.dataframe(df[base_display + ["distName"]], use_container_width=True)
+    st.info("No se encontraron celdas principales NOKLTE:LNCEL con mapeo activo.")
 
   st.divider()
   st.subheader("📋 Explorador Completo de Todos los Parámetros")
   st.dataframe(df, use_container_width=True)
 
-  # Botón de descarga
   csv = df.to_csv(index=False).encode("utf-8")
   st.download_button(
       label="📥 Descargar tabla completa en CSV",
