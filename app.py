@@ -10,10 +10,10 @@ st.set_page_config(
 
 st.title("📡 Extractor de Parámetros de Archivos XML (SCF)")
 st.write(
-    "Sube tu archivo XML de configuración de la estación base para buscar, filtrar y extraer parámetros con nomenclatura de celdas personalizada."
+    "Sube tu archivo XML de configuración de la estación base para buscar, filtrar y extraer parámetros."
 )
 
-# Diccionario de mapeo de celdas proporcionado
+# Diccionario de mapeo de celdas
 cell_mapping = {
     "LNCEL-1": "L1",
     "LNCEL-101": "R1",
@@ -59,11 +59,12 @@ if uploaded_file is not None:
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      # Aplicar reemplazo en el distName si coincide con las celdas mapeadas
-      mapped_dist_name = dist_name
+      # Extraer solo el valor mapeado si coincide con alguna celda conocida
+      mapped_dist_name = dist_name  # Valor por defecto si no hace match
       for old_cell, new_cell in cell_mapping.items():
-        if old_cell in mapped_dist_name:
-          mapped_dist_name = mapped_dist_name.replace(old_cell, new_cell)
+        if old_cell in dist_name:
+          mapped_dist_name = new_cell
+          break  
 
       # Buscar parámetros <p> dentro del managedObject
       params = {}
@@ -122,10 +123,10 @@ if uploaded_file is not None:
 
   with col2:
     search_dist = st.text_input(
-        "Buscar en Ruta / Celdas mapeadas (ej. L1, R1, MRBTS-426):"
+        "Buscar por Celda Mapeada o Ruta (ej. L1, R1, MRBTS-426):"
     )
 
-  # Aplicar filtros (buscando tanto en el original como en el mapeado)
+  # Aplicar filtros
   filtered_df = df.copy()
   if selected_class != "Todas":
     filtered_df = filtered_df[filtered_df["class"] == selected_class]
@@ -163,7 +164,7 @@ if uploaded_file is not None:
       st.info(f"No se encontró el parámetro '{param_search}' con los filtros actuales.")
 
   st.divider()
-  st.subheader("📋 Tabla General de Resultados (Con Nomenclatura Reemplazada)")
+  st.subheader("📋 Tabla General de Resultados")
   st.dataframe(
       filtered_df[
           ["distName_mapped", "class", "parameter_name", "parameter_value"]
