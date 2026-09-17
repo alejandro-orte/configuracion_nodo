@@ -1,7 +1,7 @@
+from html.parser import HTMLParser
 import io
 import re
 import xml.etree.ElementTree as ET
-from bs4 import BeautifulSoup
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +12,47 @@ st.set_page_config(
 )
 
 st.title("📡 Validador y Comparador: XML vs Plan BSS")
+
+# Parser nativo de HTML usando solo bibliotecas estándar de Python (sin dependencias externas)
+class HTMLTableParser(HTMLParser):
+
+  def __init__(self):
+    super().__init__()
+    self.tables = []
+    self.current_table = []
+    self.current_row = []
+    self.current_cell = []
+    self.in_table = False
+    self.in_row = False
+    self.in_cell = False
+
+  def handle_starttag(self, tag, attrs):
+    if tag == "table":
+      self.in_table = True
+      self.current_table = []
+    elif tag == "tr" and self.in_table:
+      self.in_row = True
+      self.current_row = []
+    elif tag in ["th", "td"] and self.in_row:
+      self.in_cell = True
+      self.current_cell = []
+
+  def handle_endtag(self, tag):
+    if tag == "table" and self.in_table:
+      self.in_table = False
+      self.tables.append(self.current_table)
+    elif tag == "tr" and self.in_row:
+      self.in_row = False
+      self.current_table.append(self.current_row)
+    elif tag in ["th", "td"] and self.in_cell:
+      self.in_cell = False
+      text = "".join(self.current_cell).strip()
+      self.current_row.append(text)
+
+  def handle_data(self, data):
+    if self.in_cell:
+      self.current_cell.append(data)
+
 
 cell_mapping = {
     "LNCEL-101": "R1",
@@ -79,27 +120,26 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Plan BSS (Soporte robusto para HTML usando parser nativo 'html.parser' o Excel)
+    # 2. Parsear Plan BSS (Soporta Excel real o tablas HTML usando el parser nativo de Python)
     bytes_data = xls_file.read()
     df_xls = None
 
-    # Intentar leer como Excel nativo primero
     try:
+      # Intentar primero como Excel nativo (.xlsx / .xls binario)
       df_xls = pd.read_excel(io.BytesIO(bytes_data))
     except Exception:
-      # Si es una tabla HTML disfrazada de .xls, la procesamos con BeautifulSoup y html.parser
+      # Si falla, interpretarlo como tabla HTML usando HTMLParser nativo
       try:
-        soup = BeautifulSoup(bytes_data, "html.parser")
-        table = soup.find("table")
-        if table:
-          # Convertir tabla HTML directamente a DataFrame usando StringIO sin dependencias externas
-          df_xls = pd.read_html(str(table), flavor=["bs4"])[0]
+        html_content = bytes_data.decode("utf-8", errors="ignore")
+        parser = HTMLTableParser()
+        parser.feed(html_content)
+        if parser.tables:
+          table_data = parser.tables[0]
+          df_xls = pd.DataFrame(table_data[1:], columns=table_data[0])
         else:
-          df_xls = pd.read_html(io.BytesIO(bytes_data), flavor=["bs4"])[0]
+          raise ValueError("No se encontraron tablas HTML en el archivo.")
       except Exception as e_html:
-        st.error(
-            f"No se pudo leer el archivo Plan BSS en ningún formato: {e_html}"
-        )
+        st.error(f"No se pudo leer el archivo Plan BSS: {e_html}")
         st.stop()
 
     # Normalizar nombres de columnas a minúsculas
