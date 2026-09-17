@@ -11,7 +11,7 @@ st.set_page_config(
 
 st.title("📡 Extractor de Parámetros de Archivos XML (SCF)")
 
-# Diccionario de mapeo (ordenado de claves más largas a más cortas para evitar solapamientos)
+# Diccionario de mapeo de celdas
 cell_mapping = {
     "LNCEL-101": "R1",
     "LNCEL-102": "R2",
@@ -49,21 +49,22 @@ if uploaded_file is not None:
     st.error(f"Error al leer el archivo XML: {e}")
     st.stop()
 
+  # 1. Extraer datos agrupados por managedObject
   data = []
   for elem in root.iter():
     if elem.tag.endswith("managedObject"):
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      # Lógica de mapeo exacta usando expresiones regulares para evitar cruces
+      # Mapeo de celda exacta
       mapped_dist_name = dist_name
       for old_cell, new_cell in cell_mapping.items():
-        # Usamos regex para asegurar que coincida exactamente el identificador de celda
         pattern = r"\b" + re.escape(old_cell) + r"\b"
         if re.search(pattern, dist_name):
           mapped_dist_name = new_cell
           break
 
+      # Extraer todos los parámetros de este objeto en un diccionario
       params = {}
       for p in elem.findall(".//"):
         if p.tag.endswith("p") and "name" in p.attrib:
@@ -74,7 +75,7 @@ if uploaded_file is not None:
               "class": cls,
               "distName": dist_name,
               "distName_mapped": mapped_dist_name,
-              "parameters": params,
+              **params,  # Desempaquetamos los parámetros como columnas individuales
           }
       )
 
@@ -82,66 +83,47 @@ if uploaded_file is not None:
     st.warning("No se encontraron objetos administrados en el XML.")
     st.stop()
 
-  flat_rows = []
-  for item in data:
-    base_row = {
-        "class": item["class"],
-        "distName": item["distName"],
-        "distName_mapped": item["distName_mapped"],
-    }
-    if item["parameters"]:
-      for k, v in item["parameters"].items():
-        row = base_row.copy()
-        row["parameter_name"] = k
-        row["parameter_value"] = v
-        flat_rows.append(row)
-    else:
-      flat_rows.append(
-          {
-              **base_row,
-              "parameter_name": "N/A",
-              "parameter_value": "N/A",
-          }
-      )
-
-  df = pd.DataFrame(flat_rows)
+  df = pd.DataFrame(data)
 
   st.divider()
-  st.subheader("🎯 Extracción Directa de Parámetro Clave")
-  param_search = st.text_input(
-      "Nombre exacto o parcial del parámetro a buscar:", value="dlMimoMode"
-  )
+  st.subheader("🎯 Vista Resumida por Celda (con pMax y dlMimoMode)")
 
-  if param_search:
-    exact_match = df[
-        df["parameter_name"].str.contains(param_search, case=False, na=False)
-    ]
-    if not exact_match.empty:
-      st.dataframe(
-          exact_match[
-              [
-                  "distName_mapped",
-                  "class",
-                  "parameter_name",
-                  "parameter_value",
-              ]
-          ],
-          use_container_width=True,
-      )
-    else:
-      st.info(f"No se encontró el parámetro '{param_search}'.")
+  # Filtrar solo objetos que correspondan a celdas mapeadas (opcional, o mostrar todos)
+  # Verificamos qué columnas de parámetros existen en el XML
+  available_cols = df.columns.tolist()
+
+  # Seleccionar columnas principales a mostrar al inicio
+  base_display = ["distName_mapped", "class"]
+
+  # Añadir parámetros clave si existen en el XML
+  extra_cols = []
+  for col_candidate in ["pMax", "dlMimoMode", "earfcn", "dlEarfcn", "tac"]:
+    if col_candidate in available_cols:
+      extra_cols.append(col_candidate)
+
+  # Columnas finales organizadas
+  display_columns = base_display + extra_cols + ["distName"]
+
+  # Filtrar el DataFrame para mostrar filas que hayan sido mapeadas a celdas cortas (L1, R1, etc.)
+  mapped_only_df = df[df["distName_mapped"].isin(cell_mapping.values())]
+
+  if not mapped_only_df.empty:
+    st.dataframe(
+        mapped_only_df[display_columns], use_container_width=True, hide_index=True
+    )
+  else:
+    st.info("No se encontraron objetos que coincidan con el mapeo de celdas configurado.")
+    st.dataframe(df[base_display + ["distName"]], use_container_width=True)
 
   st.divider()
-  st.subheader("📋 Tabla General de Resultados")
-  st.dataframe(
-      df[["distName_mapped", "class", "parameter_name", "parameter_value"]],
-      use_container_width=True,
-  )
+  st.subheader("📋 Explorador Completo de Todos los Parámetros")
+  st.dataframe(df, use_container_width=True)
 
+  # Botón de descarga
   csv = df.to_csv(index=False).encode("utf-8")
   st.download_button(
-      label="📥 Descargar resultados en CSV",
+      label="📥 Descargar tabla completa en CSV",
       data=csv,
-      file_name="parametros_mapeados_correcto.csv",
+      file_name="parametros_celdas_resumen.csv",
       mime="text/csv",
   )
