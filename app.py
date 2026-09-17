@@ -1,3 +1,4 @@
+import re
 import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
@@ -9,13 +10,9 @@ st.set_page_config(
 )
 
 st.title("📡 Extractor de Parámetros de Archivos XML (SCF)")
-st.write(
-    "Sube tu archivo XML de configuración de la estación base para buscar, filtrar y extraer parámetros."
-)
 
-# Diccionario de mapeo de celdas
+# Diccionario de mapeo (ordenado de claves más largas a más cortas para evitar solapamientos)
 cell_mapping = {
-    "LNCEL-1": "L1",
     "LNCEL-101": "R1",
     "LNCEL-102": "R2",
     "LNCEL-103": "R3",
@@ -24,23 +21,23 @@ cell_mapping = {
     "LNCEL-152": "T2",
     "LNCEL-153": "T3",
     "LNCEL-154": "T4",
-    "LNCEL-2": "L2",
     "LNCEL-201": "M1",
     "LNCEL-202": "M2",
     "LNCEL-203": "M3",
     "LNCEL-204": "M4",
-    "LNCEL-3": "L3",
-    "LNCEL-4": "L4",
     "LNCEL-51": "S1",
     "LNCEL-52": "S2",
     "LNCEL-53": "S3",
     "LNCEL-54": "S4",
+    "LNCEL-1": "L1",
+    "LNCEL-2": "L2",
+    "LNCEL-3": "L3",
+    "LNCEL-4": "L4",
     "NRCELL-1": "G1",
     "NRCELL-2": "G2",
     "NRCELL-3": "G3",
 }
 
-# 1. Subir archivo
 uploaded_file = st.file_uploader("Sube el archivo XML", type=["xml"])
 
 if uploaded_file is not None:
@@ -52,21 +49,21 @@ if uploaded_file is not None:
     st.error(f"Error al leer el archivo XML: {e}")
     st.stop()
 
-  # 2. Extraer datos de los managedObjects
   data = []
   for elem in root.iter():
     if elem.tag.endswith("managedObject"):
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      # Extraer solo el valor mapeado si coincide con alguna celda conocida
-      mapped_dist_name = dist_name  # Valor por defecto si no hace match
+      # Lógica de mapeo exacta usando expresiones regulares para evitar cruces
+      mapped_dist_name = dist_name
       for old_cell, new_cell in cell_mapping.items():
-        if old_cell in dist_name:
+        # Usamos regex para asegurar que coincida exactamente el identificador de celda
+        pattern = r"\b" + re.escape(old_cell) + r"\b"
+        if re.search(pattern, dist_name):
           mapped_dist_name = new_cell
-          break  
+          break
 
-      # Buscar parámetros <p> dentro del managedObject
       params = {}
       for p in elem.findall(".//"):
         if p.tag.endswith("p") and "name" in p.attrib:
@@ -82,10 +79,9 @@ if uploaded_file is not None:
       )
 
   if not data:
-    st.warning("No se encontraron objetos administrados (`managedObject`) en el XML.")
+    st.warning("No se encontraron objetos administrados en el XML.")
     st.stop()
 
-  # Convertir a DataFrame plano
   flat_rows = []
   for item in data:
     base_row = {
@@ -111,34 +107,6 @@ if uploaded_file is not None:
   df = pd.DataFrame(flat_rows)
 
   st.divider()
-  st.subheader("🔍 Filtros de Búsqueda")
-
-  col1, col2 = st.columns(2)
-
-  with col1:
-    classes_available = df["class"].unique().tolist()
-    selected_class = st.selectbox(
-        "Filtrar por Clase (`class`)", options=["Todas"] + classes_available
-    )
-
-  with col2:
-    search_dist = st.text_input(
-        "Buscar por Celda Mapeada o Ruta (ej. L1, R1, MRBTS-426):"
-    )
-
-  # Aplicar filtros
-  filtered_df = df.copy()
-  if selected_class != "Todas":
-    filtered_df = filtered_df[filtered_df["class"] == selected_class]
-  if search_dist:
-    filtered_df = filtered_df[
-        filtered_df["distName_mapped"].str.contains(
-            search_dist, case=False, na=False
-        )
-        | filtered_df["distName"].str.contains(search_dist, case=False, na=False)
-    ]
-
-  # Búsqueda directa de parámetros (ej. dlMimoMode)
   st.subheader("🎯 Extracción Directa de Parámetro Clave")
   param_search = st.text_input(
       "Nombre exacto o parcial del parámetro a buscar:", value="dlMimoMode"
@@ -161,22 +129,19 @@ if uploaded_file is not None:
           use_container_width=True,
       )
     else:
-      st.info(f"No se encontró el parámetro '{param_search}' con los filtros actuales.")
+      st.info(f"No se encontró el parámetro '{param_search}'.")
 
   st.divider()
   st.subheader("📋 Tabla General de Resultados")
   st.dataframe(
-      filtered_df[
-          ["distName_mapped", "class", "parameter_name", "parameter_value"]
-      ],
+      df[["distName_mapped", "class", "parameter_name", "parameter_value"]],
       use_container_width=True,
   )
 
-  # Botón de descarga
-  csv = filtered_df.to_csv(index=False).encode("utf-8")
+  csv = df.to_csv(index=False).encode("utf-8")
   st.download_button(
-      label="📥 Descargar resultados filtrados en CSV",
+      label="📥 Descargar resultados en CSV",
       data=csv,
-      file_name="parametros_mapeados.csv",
+      file_name="parametros_mapeados_correcto.csv",
       mime="text/csv",
   )
