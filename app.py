@@ -48,7 +48,6 @@ if uploaded_file is not None:
     st.error(f"Error al leer el archivo XML: {e}")
     st.stop()
 
-  # Diccionario para fusionar datos por celda base (ej. LNCEL-1 agrupa LNCEL y LNCEL_FDD)
   cells_data = {}
 
   for elem in root.iter():
@@ -56,9 +55,7 @@ if uploaded_file is not None:
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      # Solo procesar objetos que correspondan a celdas LTE
       if "LNCEL" in dist_name:
-        # Identificar la celda base (ej. MRBTS-426/LNBTS-426/LNCEL-1)
         base_match = re.search(r"(LNCEL-\d+)", dist_name)
         if base_match:
           cell_key = base_match.group(1)
@@ -72,19 +69,13 @@ if uploaded_file is not None:
             cells_data[cell_key] = {
                 "distName_mapped": mapped_name,
                 "cell_id": cell_key,
-                "distName_base": dist_name.split("/")[0]
-                + "/"
-                + dist_name.split("/")[1]
-                + "/"
-                + cell_key,
             }
 
-          # Extraer parámetros del objeto actual y agregarlos al diccionario de la celda
           for p in elem.findall(".//"):
             if p.tag.endswith("p") and "name" in p.attrib:
               param_name = p.get("name")
               param_val = p.text
-              if param_name in ["pMax", "dlMimoMode", "tac", "earfcn"]:
+              if param_name in ["pMax", "dlMimoMode"]:
                 cells_data[cell_key][param_name] = param_val
 
   if not cells_data:
@@ -96,22 +87,15 @@ if uploaded_file is not None:
   st.divider()
   st.subheader("🎯 Vista Resumida por Celda (pMax y dlMimoMode)")
 
-  # Asegurar columnas requeridas
-  for col in ["pMax", "dlMimoMode", "tac"]:
+  # Asegurar que existan las columnas de parámetros
+  for col in ["pMax", "dlMimoMode"]:
     if col not in df_cells.columns:
       df_cells[col] = "N/A"
 
-  display_cols = [
-      "distName_mapped",
-      "pMax",
-      "dlMimoMode",
-      "tac",
-      "cell_id",
-      "distName_base",
-  ]
+  # Columnas estrictamente seleccionadas (sin tac ni distName_base)
+  display_cols = ["distName_mapped", "pMax", "dlMimoMode", "cell_id"]
   final_cols = [c for c in display_cols if c in df_cells.columns]
 
-  # Ordenar por el nombre mapeado (L1, L2, R1...)
   df_cells = df_cells.sort_values(by="distName_mapped")
 
   st.dataframe(
@@ -120,7 +104,7 @@ if uploaded_file is not None:
 
   st.divider()
   st.subheader("📥 Descarga Directa de Datos de Celdas")
-  csv_cells = df_cells.to_csv(index=False).encode("utf-8")
+  csv_cells = df_cells[final_cols].to_csv(index=False).encode("utf-8")
   st.download_button(
       label="📥 Descargar resumen de celdas en CSV",
       data=csv_cells,
