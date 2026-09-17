@@ -48,80 +48,82 @@ if uploaded_file is not None:
     st.error(f"Error al leer el archivo XML: {e}")
     st.stop()
 
-  data = []
+  # Diccionario para fusionar datos por celda base (ej. LNCEL-1 agrupa LNCEL y LNCEL_FDD)
+  cells_data = {}
+
   for elem in root.iter():
     if elem.tag.endswith("managedObject"):
       cls = elem.get("class", "")
       dist_name = elem.get("distName", "")
 
-      mapped_dist_name = dist_name
-      for old_cell, new_cell in cell_mapping.items():
-        pattern = r"\b" + re.escape(old_cell) + r"\b"
-        if re.search(pattern, dist_name):
-          mapped_dist_name = new_cell
-          break
+      # Solo procesar objetos que correspondan a celdas LTE
+      if "LNCEL" in dist_name:
+        # Identificar la celda base (ej. MRBTS-426/LNBTS-426/LNCEL-1)
+        base_match = re.search(r"(LNCEL-\d+)", dist_name)
+        if base_match:
+          cell_key = base_match.group(1)
 
-      params = {}
-      for p in elem.findall(".//"):
-        if p.tag.endswith("p") and "name" in p.attrib:
-          params[p.get("name")] = p.text
+          if cell_key not in cells_data:
+            mapped_name = cell_key
+            for old_c, new_c in cell_mapping.items():
+              if old_c == cell_key:
+                mapped_name = new_c
+                break
+            cells_data[cell_key] = {
+                "distName_mapped": mapped_name,
+                "cell_id": cell_key,
+                "distName_base": dist_name.split("/")[0]
+                + "/"
+                + dist_name.split("/")[1]
+                + "/"
+                + cell_key,
+            }
 
-      data.append(
-          {
-              "class": cls,
-              "distName": dist_name,
-              "distName_mapped": mapped_dist_name,
-              **params,
-          }
-      )
+          # Extraer parámetros del objeto actual y agregarlos al diccionario de la celda
+          for p in elem.findall(".//"):
+            if p.tag.endswith("p") and "name" in p.attrib:
+              param_name = p.get("name")
+              param_val = p.text
+              if param_name in ["pMax", "dlMimoMode", "tac", "earfcn"]:
+                cells_data[cell_key][param_name] = param_val
 
-  if not data:
-    st.warning("No se encontraron objetos administrados en el XML.")
+  if not cells_data:
+    st.warning("No se encontraron objetos de celda LNCEL en el XML.")
     st.stop()
 
-  df = pd.DataFrame(data)
+  df_cells = pd.DataFrame(list(cells_data.values()))
 
   st.divider()
-  st.subheader("🎯 Vista Resumida por Celda (LNCEL Principal)")
+  st.subheader("🎯 Vista Resumida por Celda (pMax y dlMimoMode)")
 
-  # Filtrar estrictamente la clase principal de celdas LTE (NOKLTE:LNCEL) y las mapeadas
-  lncel_df = df[
-      (df["class"] == "NOKLTE:LNCEL")
-      & (df["distName_mapped"].isin(cell_mapping.values()))
-  ].copy()
+  # Asegurar columnas requeridas
+  for col in ["pMax", "dlMimoMode", "tac"]:
+    if col not in df_cells.columns:
+      df_cells[col] = "N/A"
 
-  if not lncel_df.empty:
-    # Asegurar que existan las columnas pMax y dlMimoMode para evitar errores si no están
-    for col in ["pMax", "dlMimoMode", "tac"]:
-      if col not in lncel_df.columns:
-        lncel_df[col] = "N/A"
+  display_cols = [
+      "distName_mapped",
+      "pMax",
+      "dlMimoMode",
+      "tac",
+      "cell_id",
+      "distName_base",
+  ]
+  final_cols = [c for c in display_cols if c in df_cells.columns]
 
-    # Organizar estrictamente el orden de las columnas solicitado
-    display_columns = [
-        "distName_mapped",
-        "pMax",
-        "dlMimoMode",
-        "class",
-        "tac",
-        "distName",
-    ]
-    # Mantener solo las columnas que realmente existan en el DataFrame
-    final_cols = [c for c in display_columns if c in lncel_df.columns]
+  # Ordenar por el nombre mapeado (L1, L2, R1...)
+  df_cells = df_cells.sort_values(by="distName_mapped")
 
-    st.dataframe(
-        lncel_df[final_cols], use_container_width=True, hide_index=True
-    )
-  else:
-    st.info("No se encontraron celdas principales NOKLTE:LNCEL con mapeo activo.")
+  st.dataframe(
+      df_cells[final_cols], use_container_width=True, hide_index=True
+  )
 
   st.divider()
-  st.subheader("📋 Explorador Completo de Todos los Parámetros")
-  st.dataframe(df, use_container_width=True)
-
-  csv = df.to_csv(index=False).encode("utf-8")
+  st.subheader("📥 Descarga Directa de Datos de Celdas")
+  csv_cells = df_cells.to_csv(index=False).encode("utf-8")
   st.download_button(
-      label="📥 Descargar tabla completa en CSV",
-      data=csv,
-      file_name="parametros_celdas_resumen.csv",
+      label="📥 Descargar resumen de celdas en CSV",
+      data=csv_cells,
+      file_name="resumen_celdas_mimo_pmax.csv",
       mime="text/csv",
   )
