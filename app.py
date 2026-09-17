@@ -1,6 +1,7 @@
 import io
 import re
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 import pandas as pd
 import streamlit as st
 
@@ -78,13 +79,18 @@ if xml_file is not None and xls_file is not None:
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
-    # 2. Parsear Plan BSS (Leyendo explícitamente como tabla HTML para evitar errores de formato xls)
+    # 2. Parsear Plan BSS usando BeautifulSoup (parser nativo 'html.parser')
     bytes_data = xls_file.read()
     try:
-      dfs = pd.read_html(io.BytesIO(bytes_data))
-      df_xls = dfs[0]
+      soup = BeautifulSoup(bytes_data, "html.parser")
+      table = soup.find("table")
+      if table:
+        df_xls = pd.read_html(str(table))[0]
+      else:
+        # Fallback a lectura general si no encuentra tag <table> estricto
+        df_xls = pd.read_html(io.BytesIO(bytes_data), flavor="bs4")[0]
     except Exception as e_html:
-      st.error(f"No se pudo interpretar el archivo Plan BSS como tabla HTML: {e_html}")
+      st.error(f"No se pudo interpretar el archivo Plan BSS: {e_html}")
       st.stop()
 
     # Normalizar nombres de columnas a minúsculas
