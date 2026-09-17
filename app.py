@@ -226,12 +226,18 @@ if xml_file is not None and xls_file is not None:
             }
         )
 
-        def color_matching(val):
-          color = "#d4edda" if val else "#f8d7da"
-          return f"background-color: {color}"
+        def color_matching(col):
+          return [
+              (
+                  "background-color: #d4edda"
+                  if val
+                  else "background-color: #f8d7da"
+              )
+              for val in col
+          ]
 
         st.dataframe(
-            display_table.style.applymap(
+            display_table.style.apply(
                 color_matching, subset=["pMax_Igual", "Mimo_Igual"]
             ),
             use_container_width=True,
