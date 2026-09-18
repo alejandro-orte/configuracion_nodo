@@ -319,7 +319,7 @@ if xml_file is not None and xls_file is not None:
 
         st.dataframe(
             display_table.style.apply(
-                color_matching, subset=["pMax Coincide?", "MIMO Coincide?"]
+                color_matching, subset=["Power Coincide", "MIMO Coincide"]
             ),
             use_container_width=True,
             hide_index=True,
