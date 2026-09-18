@@ -55,9 +55,9 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente (GNCEL, WNCEL, NRCELL y LNCEL)
+# Función de mapeo inteligente de sectores
 def get_mapped_sector(cell_key):
-  # Mapeo para GNCEL (ej: GNCEL-1 -> 1, GNCEL-2 -> 2)[cite: 11, 12]
+  # Mapeo para GNCEL (ej: GNCEL-1 -> 1, GNCEL-2 -> 2)
   match_g = re.match(r"GNCEL-(\d+)", cell_key)
   if match_g:
     return match_g.group(1)
@@ -113,9 +113,13 @@ if xml_file is not None and xls_file is not None:
     root = tree.getroot()
 
     cells_data = {}
+    antenna_mapping = {}  # Diccionario para almacenar antModel por sector
+
     for elem in root.iter():
       if elem.tag.endswith("managedObject"):
         dist_name = elem.get("distName", "")
+
+        # Recoger datos de celdas (Power, MIMO)
         if any(
             k in dist_name for k in ["LNCEL", "NRCELL", "WNCEL", "GNCEL"]
         ):
@@ -137,13 +141,61 @@ if xml_file is not None and xls_file is not None:
                 if p.tag.endswith("p") and "name" in p.attrib:
                   param_name = p.get("name")
                   param_val = p.text
-                  # Capturar parámetros de potencia (pMax, maxCarrierPower o perTrxPower)[cite: 12]
                   if param_name in ["pMax", "maxCarrierPower", "perTrxPower"]:
                     cells_data[cell_key]["XML_pMax"] = param_val
                   elif param_name == "dlMimoMode":
                     cells_data[cell_key]["XML_dlMimoMode"] = param_val
 
+        # Recoger datos de antenas (antModel y sectorID)
+        ant_model = None
+        sector_id_val = None
+        is_retu = False
+
+        for p in elem.findall(".//"):
+          if p.tag.endswith("p") and "name" in p.attrib:
+            if p.get("name") == "antModel":
+              ant_model = p.text
+            elif p.get("name") == "sectorID":
+              sector_id_val = p.text
+          if "RETU" in dist_name or "antModel" in str(elem.attrib):
+            is_retu = True
+
+        if ant_model and sector_id_val:
+          # Separar por '-' y quitar la 'B' final si existe
+          parts = sector_id_val.split("-")
+          for part in parts:
+            part = part.strip()
+            if part.endswith("B") or part.endswith("b"):
+              part = part[:-1]
+            if part:
+              antenna_mapping[part] = ant_model.strip()
+
     df_xml = pd.DataFrame(list(cells_data.values()))
+
+    # Agregar antModel al DataFrame de XML si el sector coincide
+    if not df_xml.empty:
+      df_xml["XML_Antena"] = df_xml["Sector"].map(antenna_mapping)
+    else:
+      df_xml = pd.DataFrame(columns=["Sector", "XML_Antena"])
+
+    # Si hay sectores en antenna_mapping que no están en cells_data, agregarlos también
+    all_sectors_set = set(df_xml.get("Sector", []).dropna()).union(
+        set(antenna_mapping.keys())
+    )
+    # Reconstruir o asegurar que todos los sectores estén representados
+    rows_all = []
+    xml_dict_by_sector = {}
+    for _, r in df_xml.iterrows():
+      xml_dict_by_sector[r["Sector"]] = r.to_dict()
+
+    for sec in all_sectors_set:
+      d = xml_dict_by_sector.get(sec, {"Sector": sec})
+      if "XML_Antena" not in d or pd.isna(d["XML_Antena"]):
+        if sec in antenna_mapping:
+          d["XML_Antena"] = antenna_mapping[sec]
+      rows_all.append(d)
+
+    df_xml = pd.DataFrame(rows_all)
 
     # 2. Parsear Plan BSS
     bytes_data = xls_file.read()
@@ -179,6 +231,7 @@ if xml_file is not None and xls_file is not None:
         ]
 
       mimo_col = "mimo" if "mimo" in df_xls.columns else None
+      antena_col = "antena" if "antena" in df_xls.columns else None
 
       expanded_rows = []
       for _, row in df_xls.iterrows():
@@ -191,6 +244,12 @@ if xml_file is not None and xls_file is not None:
           if pd.notna(val):
             mimo_val = str(val).strip()
 
+        antena_val = ""
+        if antena_col:
+          val_ant = row[antena_col]
+          if pd.notna(val_ant):
+            antena_val = str(val_ant).strip()
+
         # Separar potencias si contienen '&' y quitar puntos y comas
         if "&" in power_str:
           powers = [
@@ -201,6 +260,7 @@ if xml_file is not None and xls_file is not None:
               "Sector": sector,
               "Excel_pMax": powers[0],
               "Excel_dlMimoMode": mimo_val,
+              "Excel_Antena": antena_val,
           })
           if sector.startswith("L"):
             t_sector = "T" + sector[1:]
@@ -208,13 +268,15 @@ if xml_file is not None and xls_file is not None:
                 "Sector": t_sector,
                 "Excel_pMax": powers[1],
                 "Excel_dlMimoMode": mimo_val,
-            })
+                "Excel_Antena": antena_val,
+          })
         else:
           clean_p = power_str.replace(".", "").replace(",", "")
           expanded_rows.append({
               "Sector": sector,
               "Excel_pMax": clean_p,
               "Excel_dlMimoMode": mimo_val,
+              "Excel_Antena": antena_val,
           })
 
       df_plan = pd.DataFrame(expanded_rows).drop_duplicates(subset=["Sector"])
@@ -228,7 +290,7 @@ if xml_file is not None and xls_file is not None:
             " BSS. Revisa los nombres de los sectores."
         )
       else:
-        # Normalizar pMax XML y quitar el '0' al final si existe (ej. 440 -> 44)
+        # Normalizar pMax XML y quitar el '0' al final si existe
         merged_df["XML_pMax"] = (
             merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
             .astype(str)
@@ -239,6 +301,17 @@ if xml_file is not None and xls_file is not None:
         )
         merged_df["Excel_pMax"] = (
             merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
+        )
+
+        # Normalizar valores Antena
+        merged_df["XML_Antena"] = (
+            merged_df.get("XML_Antena", pd.Series([""] * len(merged_df)))
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+        merged_df["Excel_Antena"] = (
+            merged_df["Excel_Antena"].fillna("").astype(str).str.strip()
         )
 
         # Normalizar valores MIMO
@@ -281,6 +354,11 @@ if xml_file is not None and xls_file is not None:
             & (merged_df["Excel_Mimo_Clean"] != "")
             & (merged_df["XML_Mimo_Clean"] == merged_df["Excel_Mimo_Clean"])
         )
+        merged_df["Antena_Igual"] = (
+            (merged_df["XML_Antena"] != "")
+            & (merged_df["Excel_Antena"] != "")
+            & (merged_df["XML_Antena"] == merged_df["Excel_Antena"])
+        )
 
         st.divider()
         st.subheader("🔍 Resultados de la Comparación (XML vs Plan BSS)")
@@ -294,16 +372,22 @@ if xml_file is not None and xls_file is not None:
                 "XML_dlMimoMode",
                 "Excel_dlMimoMode",
                 "Mimo_Igual",
+                "XML_Antena",
+                "Excel_Antena",
+                "Antena_Igual",
             ]
         ].rename(
             columns={
                 "Sector": "Sector",
-                "XML_pMax": "XML Power (Sin cero final)",
-                "Excel_pMax": "Excel Power (Limpio)",
-                "pMax_Igual": "Power Coincide",
+                "XML_pMax": "XML Power",
+                "Excel_pMax": "Excel Power",
+                "pMax_Igual": "pMax Coincide?",
                 "XML_dlMimoMode": "XML MIMO",
                 "Excel_dlMimoMode": "Excel MIMO",
-                "Mimo_Igual": "MIMO Coincide",
+                "Mimo_Igual": "MIMO Coincide?",
+                "XML_Antena": "XML Antena (antModel)",
+                "Excel_Antena": "Excel Antena",
+                "Antena_Igual": "Antena Coincide?",
             }
         )
 
@@ -319,7 +403,12 @@ if xml_file is not None and xls_file is not None:
 
         st.dataframe(
             display_table.style.apply(
-                color_matching, subset=["Power Coincide", "MIMO Coincide"]
+                color_matching,
+                subset=[
+                    "pMax Coincide?",
+                    "MIMO Coincide?",
+                    "Antena Coincide?",
+                ],
             ),
             use_container_width=True,
             hide_index=True,
