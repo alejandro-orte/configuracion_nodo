@@ -104,7 +104,6 @@ with col_up2:
 
 st.divider()
 
-# Botón para iniciar la comparación solo cuando ambos archivos estén listos
 if xml_file is not None and xls_file is not None:
   if st.button("🚀 Comparar", type="primary"):
     try:
@@ -143,16 +142,18 @@ if xml_file is not None and xls_file is not None:
                       param_val = p.text
                       if (
                           param_val
-                          and param_val.strip().upper() != "LIBRE"
+                          and str(param_val).strip().upper() != "LIBRE"
                       ):
                         if param_name in [
                             "pMax",
                             "maxCarrierPower",
                             "perTrxPower",
                         ]:
-                          cells_data[cell_key]["XML_pMax"] = param_val
+                          cells_data[cell_key]["XML_pMax"] = str(param_val)
                         elif param_name == "dlMimoMode":
-                          cells_data[cell_key]["XML_dlMimoMode"] = param_val
+                          cells_data[cell_key]["XML_dlMimoMode"] = str(
+                              param_val
+                          )
 
             ant_model = None
             sector_id_val = None
@@ -166,16 +167,16 @@ if xml_file is not None and xls_file is not None:
 
             if ant_model and sector_id_val:
               if (
-                  ant_model.strip().upper() != "LIBRE"
-                  and sector_id_val.strip().upper() != "LIBRE"
+                  str(ant_model).strip().upper() != "LIBRE"
+                  and str(sector_id_val).strip().upper() != "LIBRE"
               ):
-                parts = sector_id_val.split("-")
+                parts = str(sector_id_val).split("-")
                 for part in parts:
                   part = part.strip()
                   if part.endswith("B") or part.endswith("b"):
                     part = part[:-1]
                   if part:
-                    antenna_mapping[part] = ant_model.strip()
+                    antenna_mapping[part] = str(ant_model).strip()
 
         df_xml = pd.DataFrame(list(cells_data.values()))
 
@@ -230,7 +231,8 @@ if xml_file is not None and xls_file is not None:
           expanded_rows = []
           for _, row in df_xls.iterrows():
             sector = str(row["sector"]).strip()
-            power_str = str(row["power"]).strip()
+            power_val = row["power"]
+            power_str = "" if pd.isna(power_val) else str(power_val).strip()
 
             mimo_val = ""
             if mimo_col:
@@ -251,10 +253,19 @@ if xml_file is not None and xls_file is not None:
                   p.strip().replace(".", "").replace(",", "")
                   for p in power_str.split("&")
               ]
-              p1 = "" if powers[0].upper() == "LIBRE" else powers[0]
+              p1 = (
+                  ""
+                  if str(powers[0]).upper() == "LIBRE"
+                  or str(powers[0]).upper() == "NAN"
+                  else powers[0]
+              )
               p2 = (
                   ""
-                  if len(powers) > 1 and powers[1].upper() == "LIBRE"
+                  if len(powers) > 1
+                  and (
+                      str(powers[1]).upper() == "LIBRE"
+                      or str(powers[1]).upper() == "NAN"
+                  )
                   else (powers[1] if len(powers) > 1 else "")
               )
 
@@ -275,7 +286,7 @@ if xml_file is not None and xls_file is not None:
             else:
               clean_p = (
                   ""
-                  if power_str.upper() == "LIBRE"
+                  if power_str.upper() == "LIBRE" or power_str.upper() == "NAN"
                   else power_str.replace(".", "").replace(",", "")
               )
               expanded_rows.append({
@@ -306,7 +317,7 @@ if xml_file is not None and xls_file is not None:
             merged_df["XML_pMax"] = merged_df["XML_pMax"].apply(
                 lambda x: (
                     ""
-                    if x.upper() == "LIBRE"
+                    if str(x).upper() == "LIBRE" or str(x).upper() == "NAN"
                     else (x[:-1] if isinstance(x, str) and x.endswith("0") else x)
                 )
             )
@@ -325,7 +336,12 @@ if xml_file is not None and xls_file is not None:
             )
 
             def extract_mimo(val):
-              if not val or val == "nan" or str(val).upper() == "LIBRE":
+              if (
+                  not val
+                  or pd.isna(val)
+                  or str(val).upper() == "LIBRE"
+                  or str(val).upper() == "NAN"
+              ):
                 return ""
               val_str = str(val).lower().strip()
               match = re.search(r"(\d+[xX]\d+)", val_str)
