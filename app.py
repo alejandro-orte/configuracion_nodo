@@ -152,33 +152,52 @@ if xml_file is not None and xls_file is not None:
     df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
 
     if "sector" in df_xls.columns and "power" in df_xls.columns:
-      df_xls["Sector"] = df_xls["sector"].astype(str).str.strip()
-
-      df_xls["Excel_pMax"] = (
-          df_xls["power"]
-          .astype(str)
-          .str.replace(".", "", regex=False)
-          .str.split("&")
-          .str[0]
-          .str.strip()
-      )
-
       mimo_col = "mimo" if "mimo" in df_xls.columns else None
-      if mimo_col:
-        df_xls["Excel_dlMimoMode"] = df_xls[mimo_col].fillna("").astype(str).str.strip()
-      else:
-        df_xls["Excel_dlMimoMode"] = ""
 
-      df_plan = df_xls[["Sector", "Excel_pMax", "Excel_dlMimoMode"]].drop_duplicates(
-          subset=["Sector"]
-      )
+      expanded_rows = []
+      for _, row in df_xls.iterrows():
+        sector = str(row["sector"]).strip()
+        power_str = str(row["power"]).strip()
+
+        mimo_val = ""
+        if mimo_col:
+          val = row[mimo_col]
+          if pd.notna(val):
+            mimo_val = str(val).strip()
+
+        # Separar potencias si contienen '&' (ej. 44 & 45.4)
+        if "&" in power_str:
+          powers = [p.strip() for p in power_str.split("&")]
+          # Primer valor para el sector principal (ej. L1)
+          expanded_rows.append({
+              "Sector": sector,
+              "Excel_pMax": powers[0],
+              "Excel_dlMimoMode": mimo_val,
+          })
+          # Segundo valor para el sector secundario asociado (ej. T1, cambiando L por T)
+          if sector.startswith("L"):
+            t_sector = "T" + sector[1:]
+            expanded_rows.append({
+                "Sector": t_sector,
+                "Excel_pMax": powers[1],
+                "Excel_dlMimoMode": mimo_val,
+            })
+        else:
+          expanded_rows.append({
+              "Sector": sector,
+              "Excel_pMax": power_str,
+              "Excel_dlMimoMode": mimo_val,
+          })
+
+      df_plan = pd.DataFrame(expanded_rows).drop_duplicates(subset=["Sector"])
 
       # 3. Cruzar XML y Plan BSS por Sector
       merged_df = pd.merge(df_xml, df_plan, on="Sector", how="inner")
 
       if merged_df.empty:
         st.warning(
-            "No se encontraron sectores coincidentes entre el XML y el Plan BSS. Revisa los nombres de los sectores."
+            "No se encontraron sectores coincidentes entre el XML y el Plan"
+            " BSS. Revisa los nombres de los sectores."
         )
       else:
         # Normalizar pMax XML y quitar cero al final si existe
@@ -244,7 +263,7 @@ if xml_file is not None and xls_file is not None:
             columns={
                 "Sector": "Sector",
                 "XML_pMax": "XML pMax",
-                "Excel_pMax": "Excel Power (Sin punto)",
+                "Excel_pMax": "Excel Power",
                 "pMax_Igual": "pMax Coincide?",
                 "XML_dlMimoMode": "XML MIMO",
                 "Excel_dlMimoMode": "Excel MIMO",
@@ -282,12 +301,14 @@ if xml_file is not None and xls_file is not None:
 
     else:
       st.error(
-          "El archivo Plan BSS no contiene las columnas requeridas 'sector' y 'power'."
+          "El archivo Plan BSS no contiene las columnas requeridas 'sector' y"
+          " 'power'."
       )
 
   except Exception as e:
     st.error(f"Ocurrió un error al procesar los archivos: {e}")
 else:
   st.info(
-      "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS) para iniciar la comparación."
+      "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS)"
+      " para iniciar la comparación."
   )
