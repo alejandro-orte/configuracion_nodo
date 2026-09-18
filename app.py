@@ -170,7 +170,8 @@ if xml_file is not None and xls_file is not None:
                   str(ant_model).strip().upper() != "LIBRE"
                   and str(sector_id_val).strip().upper() != "LIBRE"
               ):
-                parts = str(sector_id_val).split("-")
+                # Soporta separación por guion (-) o barra diagonal (/)
+                parts = re.split(r"[-/]", str(sector_id_val))
                 for part in parts:
                   part = part.strip()
                   if part.endswith("B") or part.endswith("b"):
@@ -413,7 +414,6 @@ if xml_file is not None and xls_file is not None:
                 & (merged_df["XML_Antena"] == merged_df["Excel_Antena"])
             )
 
-            # Guardar el DataFrame procesado en st.session_state
             st.session_state["merged_df"] = merged_df
             st.success("¡Comparación completada con éxito!")
 
