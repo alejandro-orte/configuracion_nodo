@@ -84,10 +84,6 @@ cell_mapping = {
     "LNCEL-2": "L2",
     "LNCEL-3": "L3",
     "LNCEL-4": "L4",
-    "LNCEL-4": "L5",
-    "LNCEL-4": "L6",
-    "LNCEL-4": "L7",
-    "LNCEL-4": "L8",
     "NRCELL-1": "G1",
     "NRCELL-2": "G2",
     "NRCELL-3": "G3",
@@ -196,12 +192,17 @@ if xml_file is not None and xls_file is not None:
         )
         merged_df["Excel_pMax"] = merged_df["Excel_pMax"].astype(str).str.strip()
 
-        # Normalizar valores MIMO para extraer solo el formato (ej: 4x4, 4x2)
+        # Normalizar valores MIMO: extrae el patrón o asume 2x2 si es "Closed Loop Mimo" sin número
         def extract_mimo(val):
           if not val:
             return ""
-          match = re.search(r"(\d+[xX]\d+)", str(val))
-          return match.group(1).lower() if match else str(val).lower().strip()
+          val_str = str(val).lower().strip()
+          match = re.search(r"(\d+[xX]\d+)", val_str)
+          if match:
+            return match.group(1)
+          elif "closed loop mimo" in val_str:
+            return "2x2"
+          return val_str
 
         merged_df["XML_dlMimoMode"] = (
             merged_df.get("XML_dlMimoMode", pd.Series([""] * len(merged_df)))
