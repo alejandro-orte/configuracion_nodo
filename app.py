@@ -55,14 +55,17 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente y dinámica para LNCEL y NRCELL
+# Función de mapeo inteligente con validación de rangos para evitar basura en el reporte
 def get_mapped_sector(cell_key):
-  # Mapeo dinámico para NRCELL (ej: NRCELL-1 -> G1, NRCELL-2 -> G2, etc.)
+  # Mapeo para NRCELL (solo rangos válidos del 1 al 20 -> G1 a G20)
   match_nr = re.match(r"NRCELL-(\d+)", cell_key)
   if match_nr:
-    return f"G{match_nr.group(1)}"
+    num = int(match_nr.group(1))
+    if 1 <= num <= 20:
+      return f"G{num}"
+    return None
 
-  # Mapeo dinámico para LNCEL
+  # Mapeo para LNCEL (rangos estándar)
   match_l = re.match(r"LNCEL-(\d+)", cell_key)
   if match_l:
     num = int(match_l.group(1))
@@ -77,7 +80,7 @@ def get_mapped_sector(cell_key):
     elif 201 <= num <= 250:
       return f"M{num - 200}"
 
-  return cell_key
+  return None
 
 
 col_up1, col_up2 = st.columns(2)
@@ -100,19 +103,22 @@ if xml_file is not None and xls_file is not None:
           base_match = re.search(r"((?:LNCEL|NRCELL)-\d+)", dist_name)
           if base_match:
             cell_key = base_match.group(1)
-            if cell_key not in cells_data:
-              mapped_name = get_mapped_sector(cell_key)
-              cells_data[cell_key] = {
-                  "Sector": mapped_name,
-                  "cell_id": cell_key,
-              }
+            mapped_name = get_mapped_sector(cell_key)
 
-            for p in elem.findall(".//"):
-              if p.tag.endswith("p") and "name" in p.attrib:
-                param_name = p.get("name")
-                param_val = p.text
-                if param_name in ["pMax", "dlMimoMode"]:
-                  cells_data[cell_key][f"XML_{param_name}"] = param_val
+            # Solo procesar si es un sector válido y mapeado
+            if mapped_name:
+              if cell_key not in cells_data:
+                cells_data[cell_key] = {
+                    "Sector": mapped_name,
+                    "cell_id": cell_key,
+                }
+
+              for p in elem.findall(".//"):
+                if p.tag.endswith("p") and "name" in p.attrib:
+                  param_name = p.get("name")
+                  param_val = p.text
+                  if param_name in ["pMax", "dlMimoMode"]:
+                    cells_data[cell_key][f"XML_{param_name}"] = param_val
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
@@ -155,13 +161,11 @@ if xml_file is not None and xls_file is not None:
         # Separar potencias si contienen '&' y quitar el punto decimal en cada una
         if "&" in power_str:
           powers = [p.strip().replace(".", "") for p in power_str.split("&")]
-          # Primer valor para el sector principal (ej. L1, L5)
           expanded_rows.append({
               "Sector": sector,
               "Excel_pMax": powers[0],
               "Excel_dlMimoMode": mimo_val,
           })
-          # Segundo valor para el sector secundario asociado (ej. T1, T5, cambiando L por T)
           if sector.startswith("L"):
             t_sector = "T" + sector[1:]
             expanded_rows.append({
@@ -197,9 +201,11 @@ if xml_file is not None and xls_file is not None:
         merged_df["XML_pMax"] = merged_df["XML_pMax"].apply(
             lambda x: x[:-1] if isinstance(x, str) and x.endswith("0") else x
         )
-        merged_df["Excel_pMax"] = merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
+        merged_df["Excel_pMax"] = (
+            merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
+        )
 
-        # Normalizar valores MIMO: extrae el patrón o asume 2x2 si es "Closed Loop Mimo" sin número
+        # Normalizar valores MIMO
         def extract_mimo(val):
           if not val or val == "nan":
             return ""
@@ -228,7 +234,7 @@ if xml_file is not None and xls_file is not None:
             extract_mimo
         )
 
-        # Evaluaciones de igualdad (manejando vacíos/NaN)
+        # Evaluaciones de igualdad
         merged_df["pMax_Igual"] = (
             (merged_df["XML_pMax"] != "")
             & (merged_df["Excel_pMax"] != "")
