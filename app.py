@@ -368,7 +368,6 @@ if xml_file is not None and xls_file is not None:
                 extract_mimo
             )
 
-            # Lógica para omitir MIMO en sectores G, X, Y, Z, 1, 2, 3
             def process_mimo_row(row):
               sec = str(row["Sector"]).strip().upper()
               is_omitted = sec.startswith("G") or sec in [
@@ -391,7 +390,6 @@ if xml_file is not None and xls_file is not None:
                   match_res,
               )
 
-            # Lógica para omitir Potencia (pMax) en sectores G
             def process_pmax_row(row):
               sec = str(row["Sector"]).strip().upper()
               is_omitted = sec.startswith("G")
@@ -415,153 +413,9 @@ if xml_file is not None and xls_file is not None:
                 & (merged_df["XML_Antena"] == merged_df["Excel_Antena"])
             )
 
+            # Guardar el DataFrame procesado en st.session_state
+            st.session_state["merged_df"] = merged_df
             st.success("¡Comparación completada con éxito!")
-
-            # --- RESUMEN EJECUTIVO ---
-            st.subheader("📊 Resumen Ejecutivo")
-            total_sectores = len(merged_df)
-            antena_aciertos = merged_df["Antena_Igual"].sum()
-
-            # Métricas de pMax excluyendo sectores G
-            pmax_valid_df = merged_df[merged_df["pMax_Igual"] != "N/A"]
-            total_pmax_val = len(pmax_valid_df)
-            pmax_aciertos = (
-                (pmax_valid_df["pMax_Igual"] == True).sum()
-                if total_pmax_val > 0
-                else 0
-            )
-
-            # Métricas de MIMO excluyendo los sectores donde se omite
-            mimo_valid_df = merged_df[merged_df["Mimo_Igual"] != "N/A"]
-            total_mimo_val = len(mimo_valid_df)
-            mimo_aciertos = (
-                (mimo_valid_df["Mimo_Igual"] == True).sum()
-                if total_mimo_val > 0
-                else 0
-            )
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Sectores", total_sectores)
-            m2.metric(
-                "pMax Coincidentes",
-                f"{pmax_aciertos} / {total_pmax_val}"
-                if total_pmax_val > 0
-                else "N/A",
-                delta=f"{int(pmax_aciertos/total_pmax_val*100)}%"
-                if total_pmax_val > 0
-                else "0%",
-            )
-            m3.metric(
-                "MIMO Coincidentes",
-                f"{mimo_aciertos} / {total_mimo_val}"
-                if total_mimo_val > 0
-                else "N/A",
-                delta=f"{int(mimo_aciertos/total_mimo_val*100)}%"
-                if total_mimo_val > 0
-                else "0%",
-            )
-            m4.metric(
-                "Antenas Coincidentes",
-                f"{antena_aciertos} / {total_sectores}",
-                delta=f"{int(antena_aciertos/total_sectores*100)}%"
-                if total_sectores > 0
-                else "0%",
-            )
-
-            st.divider()
-            st.subheader("🔍 Tabla Detallada de Comparación")
-
-            display_table = merged_df[
-                [
-                    "Sector",
-                    "XML_pMax",
-                    "Excel_pMax",
-                    "pMax_Igual",
-                    "XML_dlMimoMode_Disp",
-                    "Excel_dlMimoMode_Disp",
-                    "Mimo_Igual",
-                    "XML_Antena",
-                    "Excel_Antena",
-                    "Antena_Igual",
-                ]
-            ].rename(
-                columns={
-                    "Sector": "Sector",
-                    "XML_pMax": "XML Power",
-                    "Excel_pMax": "Excel Power",
-                    "pMax_Igual": "pMax Coincide?",
-                    "XML_dlMimoMode_Disp": "XML MIMO",
-                    "Excel_dlMimoMode_Disp": "Excel MIMO",
-                    "Mimo_Igual": "MIMO Coincide?",
-                    "XML_Antena": "XML Antena (antModel)",
-                    "Excel_Antena": "Excel Antena",
-                    "Antena_Igual": "Antena Coincide?",
-                }
-            )
-
-            # --- FILTROS INTERACTIVOS ---
-            filtro_opcion = st.radio(
-                "Filtrar filas de la tabla:",
-                [
-                    "Mostrar todos",
-                    "Solo con discrepancias (Errores)",
-                    "Solo coincidencias perfectas",
-                ],
-                horizontal=True,
-            )
-
-            if filtro_opcion == "Solo con discrepancias (Errores)":
-              display_table = display_table[
-                  (display_table["pMax Coincide?"] == False)
-                  | (display_table["Antena Coincide?"] == False)
-                  | (display_table["MIMO Coincide?"] == False)
-              ]
-            elif filtro_opcion == "Solo coincidencias perfectas":
-              display_table = display_table[
-                  (
-                      (display_table["pMax Coincide?"] == True)
-                      | (display_table["pMax Coincide?"] == "N/A")
-                  )
-                  & (display_table["Antena Coincide?"] == True)
-                  & (
-                      (display_table["MIMO Coincide?"] == True)
-                      | (display_table["MIMO Coincide?"] == "N/A")
-                  )
-              ]
-
-            def color_matching(col):
-              colors = []
-              for val in col:
-                if val is True:
-                  colors.append("background-color: #d4edda")
-                elif val is False:
-                  colors.append("background-color: #f8d7da")
-                else:
-                  colors.append("")  # Neutro para 'N/A'
-              return colors
-
-            st.dataframe(
-                display_table.style.apply(
-                    color_matching,
-                    subset=[
-                        "pMax Coincide?",
-                        "MIMO Coincide?",
-                        "Antena Coincide?",
-                    ],
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            st.divider()
-            st.subheader("📥 Descargar Reporte")
-            csv_data = display_table.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Descargar Reporte Filtrado en CSV",
-                data=csv_data,
-                file_name="comparacion_xml_planbss.csv",
-                mime="text/csv",
-            )
 
         else:
           st.error(
@@ -571,6 +425,144 @@ if xml_file is not None and xls_file is not None:
 
     except Exception as e:
       st.error(f"Ocurrió un error al procesar los archivos: {e}")
+
+# --- MOSTRAR RESULTADOS Y FILTROS FUERA DEL BOTÓN DE COMPARAR ---
+if "merged_df" in st.session_state:
+  merged_df = st.session_state["merged_df"]
+
+  st.subheader("📊 Resumen Ejecutivo")
+  total_sectores = len(merged_df)
+  antena_aciertos = merged_df["Antena_Igual"].sum()
+
+  pmax_valid_df = merged_df[merged_df["pMax_Igual"] != "N/A"]
+  total_pmax_val = len(pmax_valid_df)
+  pmax_aciertos = (
+      (pmax_valid_df["pMax_Igual"] == True).sum() if total_pmax_val > 0 else 0
+  )
+
+  mimo_valid_df = merged_df[merged_df["Mimo_Igual"] != "N/A"]
+  total_mimo_val = len(mimo_valid_df)
+  mimo_aciertos = (
+      (mimo_valid_df["Mimo_Igual"] == True).sum() if total_mimo_val > 0 else 0
+  )
+
+  m1, m2, m3, m4 = st.columns(4)
+  m1.metric("Total Sectores", total_sectores)
+  m2.metric(
+      "pMax Coincidentes",
+      f"{pmax_aciertos} / {total_pmax_val}" if total_pmax_val > 0 else "N/A",
+      delta=f"{int(pmax_aciertos/total_pmax_val*100)}%"
+      if total_pmax_val > 0
+      else "0%",
+  )
+  m3.metric(
+      "MIMO Coincidentes",
+      f"{mimo_aciertos} / {total_mimo_val}" if total_mimo_val > 0 else "N/A",
+      delta=f"{int(mimo_aciertos/total_mimo_val*100)}%"
+      if total_mimo_val > 0
+      else "0%",
+  )
+  m4.metric(
+      "Antenas Coincidentes",
+      f"{antena_aciertos} / {total_sectores}",
+      delta=f"{int(antena_aciertos/total_sectores*100)}%"
+      if total_sectores > 0
+      else "0%",
+  )
+
+  st.divider()
+  st.subheader("🔍 Tabla Detallada de Comparación")
+
+  display_table = merged_df[
+      [
+          "Sector",
+          "XML_pMax",
+          "Excel_pMax",
+          "pMax_Igual",
+          "XML_dlMimoMode_Disp",
+          "Excel_dlMimoMode_Disp",
+          "Mimo_Igual",
+          "XML_Antena",
+          "Excel_Antena",
+          "Antena_Igual",
+      ]
+  ].rename(
+      columns={
+          "Sector": "Sector",
+          "XML_pMax": "XML Power",
+          "Excel_pMax": "Excel Power",
+          "pMax_Igual": "pMax Coincide?",
+          "XML_dlMimoMode_Disp": "XML MIMO",
+          "Excel_dlMimoMode_Disp": "Excel MIMO",
+          "Mimo_Igual": "MIMO Coincide?",
+          "XML_Antena": "XML Antena (antModel)",
+          "Excel_Antena": "Excel Antena",
+          "Antena_Igual": "Antena Coincide?",
+      }
+  )
+
+  # --- FILTROS INTERACTIVOS ---
+  filtro_opcion = st.radio(
+      "Filtrar filas de la tabla:",
+      [
+          "Mostrar todos",
+          "Solo con discrepancias (Errores)",
+          "Solo coincidencias perfectas",
+      ],
+      horizontal=True,
+  )
+
+  if filtro_opcion == "Solo con discrepancias (Errores)":
+    display_table = display_table[
+        (display_table["pMax Coincide?"] == False)
+        | (display_table["Antena Coincide?"] == False)
+        | (display_table["MIMO Coincide?"] == False)
+    ]
+  elif filtro_opcion == "Solo coincidencias perfectas":
+    display_table = display_table[
+        (
+            (display_table["pMax Coincide?"] == True)
+            | (display_table["pMax Coincide?"] == "N/A")
+        )
+        & (display_table["Antena Coincide?"] == True)
+        & (
+            (display_table["MIMO Coincide?"] == True)
+            | (display_table["MIMO Coincide?"] == "N/A")
+        )
+    ]
+
+
+  def color_matching(col):
+    colors = []
+    for val in col:
+      if val is True:
+        colors.append("background-color: #d4edda")
+      elif val is False:
+        colors.append("background-color: #f8d7da")
+      else:
+        colors.append("")
+    return colors
+
+
+  st.dataframe(
+      display_table.style.apply(
+          color_matching,
+          subset=["pMax Coincide?", "MIMO Coincide?", "Antena Coincide?"],
+      ),
+      use_container_width=True,
+      hide_index=True,
+  )
+
+  st.divider()
+  st.subheader("📥 Descargar Reporte")
+  csv_data = display_table.to_csv(index=False).encode("utf-8")
+  st.download_button(
+      label="📥 Descargar Reporte Filtrado en CSV",
+      data=csv_data,
+      file_name="comparacion_xml_planbss.csv",
+      mime="text/csv",
+  )
+
 else:
   st.info(
       "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS) y"
