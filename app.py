@@ -368,24 +368,47 @@ if xml_file is not None and xls_file is not None:
                 extract_mimo
             )
 
-            # Regla de comparación y omisión de MIMO
-            def evaluate_mimo(row):
+            # Lógica para omitir MIMO en sectores G, X, Y, Z, 1, 2, 3
+            def process_mimo_row(row):
               sec = str(row["Sector"]).strip().upper()
-              # Omitir para sectores que empiezan con G, o X, Y, Z, 1, 2, 3
-              if sec.startswith("G") or sec in ["X", "Y", "Z", "1", "2", "3"]:
-                return True
+              is_omitted = sec.startswith("G") or sec in [
+                  "X",
+                  "Y",
+                  "Z",
+                  "1",
+                  "2",
+                  "3",
+              ]
+              if is_omitted:
+                return "", "", "N/A"
+
+              xml_m = str(row["XML_Mimo_Clean"])
+              exc_m = str(row["Excel_Mimo_Clean"])
+              match_res = xml_m != "" and exc_m != "" and xml_m == exc_m
               return (
-                  str(row["XML_Mimo_Clean"]) != ""
-                  and str(row["Excel_Mimo_Clean"]) != ""
-                  and str(row["XML_Mimo_Clean"]) == str(row["Excel_Mimo_Clean"])
+                  row["XML_dlMimoMode"],
+                  row["Excel_dlMimoMode"],
+                  match_res,
               )
 
-            merged_df["pMax_Igual"] = (
-                (merged_df["XML_pMax"] != "")
-                & (merged_df["Excel_pMax"] != "")
-                & (merged_df["XML_pMax"] == merged_df["Excel_pMax"])
-            )
-            merged_df["Mimo_Igual"] = merged_df.apply(evaluate_mimo, axis=1)
+            # Lógica para omitir Potencia (pMax) en sectores G
+            def process_pmax_row(row):
+              sec = str(row["Sector"]).strip().upper()
+              is_omitted = sec.startswith("G")
+              if is_omitted:
+                return "N/A"
+
+              xml_p = str(row["XML_pMax"])
+              exc_p = str(row["Excel_pMax"])
+              return xml_p != "" and exc_p != "" and xml_p == exc_p
+
+            mimo_processed = merged_df.apply(process_mimo_row, axis=1)
+            merged_df["XML_dlMimoMode_Disp"] = [x[0] for x in mimo_processed]
+            merged_df["Excel_dlMimoMode_Disp"] = [x[1] for x in mimo_processed]
+            merged_df["Mimo_Igual"] = [x[2] for x in mimo_processed]
+
+            merged_df["pMax_Igual"] = merged_df.apply(process_pmax_row, axis=1)
+
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
@@ -397,24 +420,44 @@ if xml_file is not None and xls_file is not None:
             # --- RESUMEN EJECUTIVO ---
             st.subheader("📊 Resumen Ejecutivo")
             total_sectores = len(merged_df)
-            pmax_aciertos = merged_df["pMax_Igual"].sum()
-            mimo_aciertos = merged_df["Mimo_Igual"].sum()
             antena_aciertos = merged_df["Antena_Igual"].sum()
+
+            # Métricas de pMax excluyendo sectores G
+            pmax_valid_df = merged_df[merged_df["pMax_Igual"] != "N/A"]
+            total_pmax_val = len(pmax_valid_df)
+            pmax_aciertos = (
+                (pmax_valid_df["pMax_Igual"] == True).sum()
+                if total_pmax_val > 0
+                else 0
+            )
+
+            # Métricas de MIMO excluyendo los sectores donde se omite
+            mimo_valid_df = merged_df[merged_df["Mimo_Igual"] != "N/A"]
+            total_mimo_val = len(mimo_valid_df)
+            mimo_aciertos = (
+                (mimo_valid_df["Mimo_Igual"] == True).sum()
+                if total_mimo_val > 0
+                else 0
+            )
 
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Total Sectores", total_sectores)
             m2.metric(
                 "pMax Coincidentes",
-                f"{pmax_aciertos} / {total_sectores}",
-                delta=f"{int(pmax_aciertos/total_sectores*100)}%"
-                if total_sectores > 0
+                f"{pmax_aciertos} / {total_pmax_val}"
+                if total_pmax_val > 0
+                else "N/A",
+                delta=f"{int(pmax_aciertos/total_pmax_val*100)}%"
+                if total_pmax_val > 0
                 else "0%",
             )
             m3.metric(
                 "MIMO Coincidentes",
-                f"{mimo_aciertos} / {total_sectores}",
-                delta=f"{int(mimo_aciertos/total_sectores*100)}%"
-                if total_sectores > 0
+                f"{mimo_aciertos} / {total_mimo_val}"
+                if total_mimo_val > 0
+                else "N/A",
+                delta=f"{int(mimo_aciertos/total_mimo_val*100)}%"
+                if total_mimo_val > 0
                 else "0%",
             )
             m4.metric(
@@ -434,8 +477,8 @@ if xml_file is not None and xls_file is not None:
                     "XML_pMax",
                     "Excel_pMax",
                     "pMax_Igual",
-                    "XML_dlMimoMode",
-                    "Excel_dlMimoMode",
+                    "XML_dlMimoMode_Disp",
+                    "Excel_dlMimoMode_Disp",
                     "Mimo_Igual",
                     "XML_Antena",
                     "Excel_Antena",
@@ -447,8 +490,8 @@ if xml_file is not None and xls_file is not None:
                     "XML_pMax": "XML Power",
                     "Excel_pMax": "Excel Power",
                     "pMax_Igual": "pMax Coincide?",
-                    "XML_dlMimoMode": "XML MIMO",
-                    "Excel_dlMimoMode": "Excel MIMO",
+                    "XML_dlMimoMode_Disp": "XML MIMO",
+                    "Excel_dlMimoMode_Disp": "Excel MIMO",
                     "Mimo_Igual": "MIMO Coincide?",
                     "XML_Antena": "XML Antena (antModel)",
                     "Excel_Antena": "Excel Antena",
@@ -469,28 +512,33 @@ if xml_file is not None and xls_file is not None:
 
             if filtro_opcion == "Solo con discrepancias (Errores)":
               display_table = display_table[
-                  ~(
-                      display_table["pMax Coincide?"]
-                      & display_table["MIMO Coincide?"]
-                      & display_table["Antena Coincide?"]
-                  )
+                  (display_table["pMax Coincide?"] == False)
+                  | (display_table["Antena Coincide?"] == False)
+                  | (display_table["MIMO Coincide?"] == False)
               ]
             elif filtro_opcion == "Solo coincidencias perfectas":
               display_table = display_table[
-                  display_table["pMax Coincide?"]
-                  & display_table["MIMO Coincide?"]
-                  & display_table["Antena Coincide?"]
+                  (
+                      (display_table["pMax Coincide?"] == True)
+                      | (display_table["pMax Coincide?"] == "N/A")
+                  )
+                  & (display_table["Antena Coincide?"] == True)
+                  & (
+                      (display_table["MIMO Coincide?"] == True)
+                      | (display_table["MIMO Coincide?"] == "N/A")
+                  )
               ]
 
             def color_matching(col):
-              return [
-                  (
-                      "background-color: #d4edda"
-                      if val
-                      else "background-color: #f8d7da"
-                  )
-                  for val in col
-              ]
+              colors = []
+              for val in col:
+                if val is True:
+                  colors.append("background-color: #d4edda")
+                elif val is False:
+                  colors.append("background-color: #f8d7da")
+                else:
+                  colors.append("")  # Neutro para 'N/A'
+              return colors
 
             st.dataframe(
                 display_table.style.apply(
