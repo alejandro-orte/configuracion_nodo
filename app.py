@@ -165,8 +165,12 @@ if xml_file is not None and xls_file is not None:
           if pd.notna(val):
             mimo_val = str(val).strip()
 
+        # Separar potencias si contienen '&' y quitar puntos y comas en cada una
         if "&" in power_str:
-          powers = [p.strip().replace(".", "") for p in power_str.split("&")]
+          powers = [
+              p.strip().replace(".", "").replace(",", "")
+              for p in power_str.split("&")
+          ]
           expanded_rows.append({
               "Sector": sector,
               "Excel_pMax": powers[0],
@@ -180,7 +184,7 @@ if xml_file is not None and xls_file is not None:
                 "Excel_dlMimoMode": mimo_val,
             })
         else:
-          clean_p = power_str.replace(".", "")
+          clean_p = power_str.replace(".", "").replace(",", "")
           expanded_rows.append({
               "Sector": sector,
               "Excel_pMax": clean_p,
@@ -266,7 +270,7 @@ if xml_file is not None and xls_file is not None:
             columns={
                 "Sector": "Sector",
                 "XML_pMax": "XML pMax",
-                "Excel_pMax": "Excel Power (Sin punto)",
+                "Excel_pMax": "Excel Power (Sin puntos ni comas)",
                 "pMax_Igual": "pMax Coincide?",
                 "XML_dlMimoMode": "XML MIMO",
                 "Excel_dlMimoMode": "Excel MIMO",
