@@ -300,10 +300,10 @@ if xml_file is not None and xls_file is not None:
                 "Sector": "Sector",
                 "XML_pMax": "XML Power (Sin cero final)",
                 "Excel_pMax": "Excel Power (Limpio)",
-                "pMax_Igual": "pMax Coincide?",
+                "pMax_Igual": "Power Coincide",
                 "XML_dlMimoMode": "XML MIMO",
                 "Excel_dlMimoMode": "Excel MIMO",
-                "Mimo_Igual": "MIMO Coincide?",
+                "Mimo_Igual": "MIMO Coincide",
             }
         )
 
