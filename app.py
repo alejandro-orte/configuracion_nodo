@@ -368,16 +368,24 @@ if xml_file is not None and xls_file is not None:
                 extract_mimo
             )
 
+            # Regla de comparación y omisión de MIMO
+            def evaluate_mimo(row):
+              sec = str(row["Sector"]).strip().upper()
+              # Omitir para sectores que empiezan con G, o X, Y, Z, 1, 2, 3
+              if sec.startswith("G") or sec in ["X", "Y", "Z", "1", "2", "3"]:
+                return True
+              return (
+                  str(row["XML_Mimo_Clean"]) != ""
+                  and str(row["Excel_Mimo_Clean"]) != ""
+                  and str(row["XML_Mimo_Clean"]) == str(row["Excel_Mimo_Clean"])
+              )
+
             merged_df["pMax_Igual"] = (
                 (merged_df["XML_pMax"] != "")
                 & (merged_df["Excel_pMax"] != "")
                 & (merged_df["XML_pMax"] == merged_df["Excel_pMax"])
             )
-            merged_df["Mimo_Igual"] = (
-                (merged_df["XML_Mimo_Clean"] != "")
-                & (merged_df["Excel_Mimo_Clean"] != "")
-                & (merged_df["XML_Mimo_Clean"] == merged_df["Excel_Mimo_Clean"])
-            )
+            merged_df["Mimo_Igual"] = merged_df.apply(evaluate_mimo, axis=1)
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
@@ -386,7 +394,7 @@ if xml_file is not None and xls_file is not None:
 
             st.success("¡Comparación completada con éxito!")
 
-            # --- NUEVA SECCIÓN: MÉTRICAS Y RESUMEN EJECUTIVO ---
+            # --- RESUMEN EJECUTIVO ---
             st.subheader("📊 Resumen Ejecutivo")
             total_sectores = len(merged_df)
             pmax_aciertos = merged_df["pMax_Igual"].sum()
@@ -448,7 +456,7 @@ if xml_file is not None and xls_file is not None:
                 }
             )
 
-            # --- NUEVA SECCIÓN: FILTROS INTERACTIVOS ---
+            # --- FILTROS INTERACTIVOS ---
             filtro_opcion = st.radio(
                 "Filtrar filas de la tabla:",
                 [
