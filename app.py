@@ -55,9 +55,8 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente con validación de rangos para evitar basura en el reporte
+# Función de mapeo inteligente con validación de rangos
 def get_mapped_sector(cell_key):
-  # Mapeo para NRCELL (solo rangos válidos del 1 al 20 -> G1 a G20)
   match_nr = re.match(r"NRCELL-(\d+)", cell_key)
   if match_nr:
     num = int(match_nr.group(1))
@@ -65,7 +64,6 @@ def get_mapped_sector(cell_key):
       return f"G{num}"
     return None
 
-  # Mapeo para LNCEL (rangos estándar)
   match_l = re.match(r"LNCEL-(\d+)", cell_key)
   if match_l:
     num = int(match_l.group(1))
@@ -105,7 +103,6 @@ if xml_file is not None and xls_file is not None:
             cell_key = base_match.group(1)
             mapped_name = get_mapped_sector(cell_key)
 
-            # Solo procesar si es un sector válido y mapeado
             if mapped_name:
               if cell_key not in cells_data:
                 cells_data[cell_key] = {
@@ -145,6 +142,16 @@ if xml_file is not None and xls_file is not None:
     df_xls.columns = [str(col).strip().lower() for col in df_xls.columns]
 
     if "sector" in df_xls.columns and "power" in df_xls.columns:
+      # Filtrar y excluir filas donde tipocambio sea 'eliminar'
+      if "tipocambio" in df_xls.columns:
+        df_xls = df_xls[
+            ~df_xls["tipocambio"]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .eq("eliminar")
+        ]
+
       mimo_col = "mimo" if "mimo" in df_xls.columns else None
 
       expanded_rows = []
@@ -158,7 +165,6 @@ if xml_file is not None and xls_file is not None:
           if pd.notna(val):
             mimo_val = str(val).strip()
 
-        # Separar potencias si contienen '&' y quitar el punto decimal en cada una
         if "&" in power_str:
           powers = [p.strip().replace(".", "") for p in power_str.split("&")]
           expanded_rows.append({
@@ -192,7 +198,6 @@ if xml_file is not None and xls_file is not None:
             " BSS. Revisa los nombres de los sectores."
         )
       else:
-        # Normalizar pMax XML y quitar cero al final si existe
         merged_df["XML_pMax"] = (
             merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
             .astype(str)
@@ -205,7 +210,6 @@ if xml_file is not None and xls_file is not None:
             merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
         )
 
-        # Normalizar valores MIMO
         def extract_mimo(val):
           if not val or val == "nan":
             return ""
@@ -234,7 +238,6 @@ if xml_file is not None and xls_file is not None:
             extract_mimo
         )
 
-        # Evaluaciones de igualdad
         merged_df["pMax_Igual"] = (
             (merged_df["XML_pMax"] != "")
             & (merged_df["Excel_pMax"] != "")
