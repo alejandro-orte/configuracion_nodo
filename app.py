@@ -55,39 +55,31 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-cell_mapping = {
-    "LNCEL-101": "R1",
-    "LNCEL-102": "R2",
-    "LNCEL-103": "R3",
-    "LNCEL-104": "R4",
-    "LNCEL-151": "T1",
-    "LNCEL-152": "T2",
-    "LNCEL-153": "T3",
-    "LNCEL-154": "T4",
-    "LNCEL-155": "T5",
-    "LNCEL-156": "T6",
-    "LNCEL-157": "T7",
-    "LNCEL-158": "T8",
-    "LNCEL-201": "M1",
-    "LNCEL-202": "M2",
-    "LNCEL-203": "M3",
-    "LNCEL-204": "M4",
-    "LNCEL-205": "M5",
-    "LNCEL-206": "M6",
-    "LNCEL-207": "M7",
-    "LNCEL-208": "M8",
-    "LNCEL-51": "S1",
-    "LNCEL-52": "S2",
-    "LNCEL-53": "S3",
-    "LNCEL-54": "S4",
-    "LNCEL-1": "L1",
-    "LNCEL-2": "L2",
-    "LNCEL-3": "L3",
-    "LNCEL-4": "L4",
-    "NRCELL-1": "G1",
-    "NRCELL-2": "G2",
-    "NRCELL-3": "G3",
-}
+# Función inteligente para mapear celdas XML a nombres de sector estándar
+def get_mapped_sector(cell_key):
+  if cell_key in {"NRCELL-1": "G1", "NRCELL-2": "G2", "NRCELL-3": "G3"}:
+    return cell_key
+
+  match_l = re.match(r"LNCEL-(\d+)", cell_key)
+  if match_l:
+    num = int(match_l.group(1))
+    if 1 <= num <= 50:
+      return f"L{num}"
+    elif 51 <= num <= 100:
+      return f"S{num - 50}"
+    elif 101 <= num <= 150:
+      return f"R{num - 100}"
+    elif 151 <= num <= 200:
+      return f"T{num - 150}"
+    elif 201 <= num <= 250:
+      return f"M{num - 200}"
+
+  match_nr = re.match(r"NRCELL-(\d+)", cell_key)
+  if match_nr:
+    return f"G{match_nr.group(1)}"
+
+  return cell_key
+
 
 col_up1, col_up2 = st.columns(2)
 with col_up1:
@@ -105,16 +97,12 @@ if xml_file is not None and xls_file is not None:
     for elem in root.iter():
       if elem.tag.endswith("managedObject"):
         dist_name = elem.get("distName", "")
-        if "LNCEL" in dist_name:
-          base_match = re.search(r"(LNCEL-\d+)", dist_name)
+        if "LNCEL" in dist_name or "NRCELL" in dist_name:
+          base_match = re.search(r"((?:LNCEL|NRCELL)-\d+)", dist_name)
           if base_match:
             cell_key = base_match.group(1)
             if cell_key not in cells_data:
-              mapped_name = cell_key
-              for old_c, new_c in cell_mapping.items():
-                if old_c == cell_key:
-                  mapped_name = new_c
-                  break
+              mapped_name = get_mapped_sector(cell_key)
               cells_data[cell_key] = {
                   "Sector": mapped_name,
                   "cell_id": cell_key,
@@ -168,13 +156,13 @@ if xml_file is not None and xls_file is not None:
         # Separar potencias si contienen '&' y quitar el punto decimal en cada una
         if "&" in power_str:
           powers = [p.strip().replace(".", "") for p in power_str.split("&")]
-          # Primer valor para el sector principal (ej. L1)
+          # Primer valor para el sector principal (ej. L1, L5)
           expanded_rows.append({
               "Sector": sector,
               "Excel_pMax": powers[0],
               "Excel_dlMimoMode": mimo_val,
           })
-          # Segundo valor para el sector secundario asociado (ej. T1, cambiando L por T)
+          # Segundo valor para el sector secundario asociado (ej. T1, T5, cambiando L por T)
           if sector.startswith("L"):
             t_sector = "T" + sector[1:]
             expanded_rows.append({
@@ -192,8 +180,8 @@ if xml_file is not None and xls_file is not None:
 
       df_plan = pd.DataFrame(expanded_rows).drop_duplicates(subset=["Sector"])
 
-      # 3. Cruzar XML y Plan BSS por Sector
-      merged_df = pd.merge(df_xml, df_plan, on="Sector", how="inner")
+      # 3. Cruzar XML y Plan BSS por Sector usando outer join para no perder sectores
+      merged_df = pd.merge(df_xml, df_plan, on="Sector", how="outer")
 
       if merged_df.empty:
         st.warning(
@@ -208,13 +196,13 @@ if xml_file is not None and xls_file is not None:
             .str.strip()
         )
         merged_df["XML_pMax"] = merged_df["XML_pMax"].apply(
-            lambda x: x[:-1] if x.endswith("0") else x
+            lambda x: x[:-1] if isinstance(x, str) and x.endswith("0") else x
         )
-        merged_df["Excel_pMax"] = merged_df["Excel_pMax"].astype(str).str.strip()
+        merged_df["Excel_pMax"] = merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
 
         # Normalizar valores MIMO: extrae el patrón o asume 2x2 si es "Closed Loop Mimo" sin número
         def extract_mimo(val):
-          if not val:
+          if not val or val == "nan":
             return ""
           val_str = str(val).lower().strip()
           match = re.search(r"(\d+[xX]\d+)", val_str)
@@ -241,10 +229,16 @@ if xml_file is not None and xls_file is not None:
             extract_mimo
         )
 
-        # Evaluaciones de igualdad
-        merged_df["pMax_Igual"] = merged_df["XML_pMax"] == merged_df["Excel_pMax"]
+        # Evaluaciones de igualdad (manejando vacíos/NaN)
+        merged_df["pMax_Igual"] = (
+            (merged_df["XML_pMax"] != "")
+            & (merged_df["Excel_pMax"] != "")
+            & (merged_df["XML_pMax"] == merged_df["Excel_pMax"])
+        )
         merged_df["Mimo_Igual"] = (
-            merged_df["XML_Mimo_Clean"] == merged_df["Excel_Mimo_Clean"]
+            (merged_df["XML_Mimo_Clean"] != "")
+            & (merged_df["Excel_Mimo_Clean"] != "")
+            & (merged_df["XML_Mimo_Clean"] == merged_df["Excel_Mimo_Clean"])
         )
 
         st.divider()
