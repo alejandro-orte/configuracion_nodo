@@ -385,7 +385,40 @@ if xml_file is not None and xls_file is not None:
             )
 
             st.success("¡Comparación completada con éxito!")
-            st.subheader("🔍 Resultados de la Comparación (XML vs Plan BSS)")
+
+            # --- NUEVA SECCIÓN: MÉTRICAS Y RESUMEN EJECUTIVO ---
+            st.subheader("📊 Resumen Ejecutivo")
+            total_sectores = len(merged_df)
+            pmax_aciertos = merged_df["pMax_Igual"].sum()
+            mimo_aciertos = merged_df["Mimo_Igual"].sum()
+            antena_aciertos = merged_df["Antena_Igual"].sum()
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Sectores", total_sectores)
+            m2.metric(
+                "pMax Coincidentes",
+                f"{pmax_aciertos} / {total_sectores}",
+                delta=f"{int(pmax_aciertos/total_sectores*100)}%"
+                if total_sectores > 0
+                else "0%",
+            )
+            m3.metric(
+                "MIMO Coincidentes",
+                f"{mimo_aciertos} / {total_sectores}",
+                delta=f"{int(mimo_aciertos/total_sectores*100)}%"
+                if total_sectores > 0
+                else "0%",
+            )
+            m4.metric(
+                "Antenas Coincidentes",
+                f"{antena_aciertos} / {total_sectores}",
+                delta=f"{int(antena_aciertos/total_sectores*100)}%"
+                if total_sectores > 0
+                else "0%",
+            )
+
+            st.divider()
+            st.subheader("🔍 Tabla Detallada de Comparación")
 
             display_table = merged_df[
                 [
@@ -415,6 +448,32 @@ if xml_file is not None and xls_file is not None:
                 }
             )
 
+            # --- NUEVA SECCIÓN: FILTROS INTERACTIVOS ---
+            filtro_opcion = st.radio(
+                "Filtrar filas de la tabla:",
+                [
+                    "Mostrar todos",
+                    "Solo con discrepancias (Errores)",
+                    "Solo coincidencias perfectas",
+                ],
+                horizontal=True,
+            )
+
+            if filtro_opcion == "Solo con discrepancias (Errores)":
+              display_table = display_table[
+                  ~(
+                      display_table["pMax Coincide?"]
+                      & display_table["MIMO Coincide?"]
+                      & display_table["Antena Coincide?"]
+                  )
+              ]
+            elif filtro_opcion == "Solo coincidencias perfectas":
+              display_table = display_table[
+                  display_table["pMax Coincide?"]
+                  & display_table["MIMO Coincide?"]
+                  & display_table["Antena Coincide?"]
+              ]
+
             def color_matching(col):
               return [
                   (
@@ -439,10 +498,10 @@ if xml_file is not None and xls_file is not None:
             )
 
             st.divider()
-            st.subheader("📥 Descargar Reporte de Comparación")
+            st.subheader("📥 Descargar Reporte")
             csv_data = display_table.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Descargar Comparativa en CSV",
+                label="📥 Descargar Reporte Filtrado en CSV",
                 data=csv_data,
                 file_name="comparacion_xml_planbss.csv",
                 mime="text/csv",
