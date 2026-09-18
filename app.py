@@ -55,9 +55,14 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente (WNCEL, NRCELL y LNCEL)
+# Función de mapeo inteligente (GNCEL, WNCEL, NRCELL y LNCEL)
 def get_mapped_sector(cell_key):
-  # Mapeo para WNCEL (último dígito: 1->X, 2->Y, 3->Z)[cite: 13]
+  # Mapeo para GNCEL (ej: GNCEL-1 -> 1, GNCEL-2 -> 2)[cite: 11, 12]
+  match_g = re.match(r"GNCEL-(\d+)", cell_key)
+  if match_g:
+    return match_g.group(1)
+
+  # Mapeo para WNCEL (último dígito: 1->X, 2->Y, 3->Z)
   match_w = re.match(r"WNCEL-(\d+)", cell_key)
   if match_w:
     last_digit = cell_key[-1]
@@ -111,8 +116,12 @@ if xml_file is not None and xls_file is not None:
     for elem in root.iter():
       if elem.tag.endswith("managedObject"):
         dist_name = elem.get("distName", "")
-        if "LNCEL" in dist_name or "NRCELL" in dist_name or "WNCEL" in dist_name:
-          base_match = re.search(r"((?:LNCEL|NRCELL|WNCEL)-\d+)", dist_name)
+        if any(
+            k in dist_name for k in ["LNCEL", "NRCELL", "WNCEL", "GNCEL"]
+        ):
+          base_match = re.search(
+              r"((?:LNCEL|NRCELL|WNCEL|GNCEL)-\d+)", dist_name
+          )
           if base_match:
             cell_key = base_match.group(1)
             mapped_name = get_mapped_sector(cell_key)
@@ -128,8 +137,8 @@ if xml_file is not None and xls_file is not None:
                 if p.tag.endswith("p") and "name" in p.attrib:
                   param_name = p.get("name")
                   param_val = p.text
-                  # Capturar pMax, maxCarrierPower o dlMimoMode
-                  if param_name in ["pMax", "maxCarrierPower"]:
+                  # Capturar parámetros de potencia (pMax, maxCarrierPower o perTrxPower)[cite: 12]
+                  if param_name in ["pMax", "maxCarrierPower", "perTrxPower"]:
                     cells_data[cell_key]["XML_pMax"] = param_val
                   elif param_name == "dlMimoMode":
                     cells_data[cell_key]["XML_dlMimoMode"] = param_val
@@ -219,7 +228,7 @@ if xml_file is not None and xls_file is not None:
             " BSS. Revisa los nombres de los sectores."
         )
       else:
-        # Normalizar pMax XML y quitar el '0' al final si existe (ej. 440 -> 44)[cite: 13]
+        # Normalizar pMax XML y quitar el '0' al final si existe (ej. 440 -> 44)
         merged_df["XML_pMax"] = (
             merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
             .astype(str)
