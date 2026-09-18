@@ -55,11 +55,14 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función inteligente para mapear celdas XML a nombres de sector estándar
+# Función de mapeo inteligente y dinámica para LNCEL y NRCELL
 def get_mapped_sector(cell_key):
-  if cell_key in {"NRCELL-1": "G1", "NRCELL-2": "G2", "NRCELL-3": "G3"}:
-    return cell_key
+  # Mapeo dinámico para NRCELL (ej: NRCELL-1 -> G1, NRCELL-2 -> G2, etc.)
+  match_nr = re.match(r"NRCELL-(\d+)", cell_key)
+  if match_nr:
+    return f"G{match_nr.group(1)}"
 
+  # Mapeo dinámico para LNCEL
   match_l = re.match(r"LNCEL-(\d+)", cell_key)
   if match_l:
     num = int(match_l.group(1))
@@ -73,10 +76,6 @@ def get_mapped_sector(cell_key):
       return f"T{num - 150}"
     elif 201 <= num <= 250:
       return f"M{num - 200}"
-
-  match_nr = re.match(r"NRCELL-(\d+)", cell_key)
-  if match_nr:
-    return f"G{match_nr.group(1)}"
 
   return cell_key
 
@@ -180,7 +179,7 @@ if xml_file is not None and xls_file is not None:
 
       df_plan = pd.DataFrame(expanded_rows).drop_duplicates(subset=["Sector"])
 
-      # 3. Cruzar XML y Plan BSS por Sector usando outer join para no perder sectores
+      # 3. Cruzar XML y Plan BSS por Sector usando outer join
       merged_df = pd.merge(df_xml, df_plan, on="Sector", how="outer")
 
       if merged_df.empty:
