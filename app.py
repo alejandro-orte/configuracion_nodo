@@ -55,8 +55,21 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente con validación de rangos
+# Función de mapeo inteligente (WNCEL, NRCELL y LNCEL)
 def get_mapped_sector(cell_key):
+  # Mapeo para WNCEL (último dígito: 1->X, 2->Y, 3->Z)[cite: 13]
+  match_w = re.match(r"WNCEL-(\d+)", cell_key)
+  if match_w:
+    last_digit = cell_key[-1]
+    if last_digit == "1":
+      return "X"
+    elif last_digit == "2":
+      return "Y"
+    elif last_digit == "3":
+      return "Z"
+    return None
+
+  # Mapeo para NRCELL (ej: NRCELL-1 -> G1)
   match_nr = re.match(r"NRCELL-(\d+)", cell_key)
   if match_nr:
     num = int(match_nr.group(1))
@@ -64,6 +77,7 @@ def get_mapped_sector(cell_key):
       return f"G{num}"
     return None
 
+  # Mapeo para LNCEL
   match_l = re.match(r"LNCEL-(\d+)", cell_key)
   if match_l:
     num = int(match_l.group(1))
@@ -97,8 +111,8 @@ if xml_file is not None and xls_file is not None:
     for elem in root.iter():
       if elem.tag.endswith("managedObject"):
         dist_name = elem.get("distName", "")
-        if "LNCEL" in dist_name or "NRCELL" in dist_name:
-          base_match = re.search(r"((?:LNCEL|NRCELL)-\d+)", dist_name)
+        if "LNCEL" in dist_name or "NRCELL" in dist_name or "WNCEL" in dist_name:
+          base_match = re.search(r"((?:LNCEL|NRCELL|WNCEL)-\d+)", dist_name)
           if base_match:
             cell_key = base_match.group(1)
             mapped_name = get_mapped_sector(cell_key)
@@ -114,8 +128,11 @@ if xml_file is not None and xls_file is not None:
                 if p.tag.endswith("p") and "name" in p.attrib:
                   param_name = p.get("name")
                   param_val = p.text
-                  if param_name in ["pMax", "dlMimoMode"]:
-                    cells_data[cell_key][f"XML_{param_name}"] = param_val
+                  # Capturar pMax, maxCarrierPower o dlMimoMode
+                  if param_name in ["pMax", "maxCarrierPower"]:
+                    cells_data[cell_key]["XML_pMax"] = param_val
+                  elif param_name == "dlMimoMode":
+                    cells_data[cell_key]["XML_dlMimoMode"] = param_val
 
     df_xml = pd.DataFrame(list(cells_data.values()))
 
@@ -165,7 +182,7 @@ if xml_file is not None and xls_file is not None:
           if pd.notna(val):
             mimo_val = str(val).strip()
 
-        # Separar potencias si contienen '&' y quitar puntos y comas en cada una
+        # Separar potencias si contienen '&' y quitar puntos y comas
         if "&" in power_str:
           powers = [
               p.strip().replace(".", "").replace(",", "")
@@ -202,6 +219,7 @@ if xml_file is not None and xls_file is not None:
             " BSS. Revisa los nombres de los sectores."
         )
       else:
+        # Normalizar pMax XML y quitar el '0' al final si existe (ej. 440 -> 44)[cite: 13]
         merged_df["XML_pMax"] = (
             merged_df.get("XML_pMax", pd.Series([None] * len(merged_df)))
             .astype(str)
@@ -214,6 +232,7 @@ if xml_file is not None and xls_file is not None:
             merged_df["Excel_pMax"].fillna("").astype(str).str.strip()
         )
 
+        # Normalizar valores MIMO
         def extract_mimo(val):
           if not val or val == "nan":
             return ""
@@ -242,6 +261,7 @@ if xml_file is not None and xls_file is not None:
             extract_mimo
         )
 
+        # Evaluaciones de igualdad
         merged_df["pMax_Igual"] = (
             (merged_df["XML_pMax"] != "")
             & (merged_df["Excel_pMax"] != "")
@@ -269,8 +289,8 @@ if xml_file is not None and xls_file is not None:
         ].rename(
             columns={
                 "Sector": "Sector",
-                "XML_pMax": "XML pMax",
-                "Excel_pMax": "Excel Power (Sin puntos ni comas)",
+                "XML_pMax": "XML Power (Sin cero final)",
+                "Excel_pMax": "Excel Power (Limpio)",
                 "pMax_Igual": "pMax Coincide?",
                 "XML_dlMimoMode": "XML MIMO",
                 "Excel_dlMimoMode": "Excel MIMO",
