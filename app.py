@@ -96,6 +96,19 @@ def get_mapped_sector(cell_key):
   return None
 
 
+# Función para obtener el número de grupo de sector (ej: L1, T1, M1, S1, R1, G1, X -> 1)
+def get_sector_group_num(sector_str):
+  sec = str(sector_str).strip().upper()
+  if sec == "X":
+    return "1"
+  if sec == "Y":
+    return "2"
+  if sec == "Z":
+    return "3"
+  m = re.search(r"\d+", sec)
+  return m.group(0) if m else sec
+
+
 # Función para normalizar nombres de antenas al comparar
 def normalize_antenna(ant_name):
   if not ant_name or pd.isna(ant_name):
@@ -104,10 +117,9 @@ def normalize_antenna(ant_name):
   if ant_str in ["LIBRE", "LIB_SEC"] or ant_str.startswith("LIB"):
     return ""
 
-  # 1. Remueve sufijos tras guion bajo (ej: 84510992_Y1 -> 84510992)
+  # Remueve sufijos tras guion bajo (ej: 84510992_Y1 -> 84510992)
   ant_str = re.sub(r"_[A-Z0-9]+$", "", ant_str)
-
-  # 2. Remueve sufijo de 2 dígitos al final (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
+  # Remueve sufijo de 2 dígitos al final (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
   ant_str = re.sub(r"0\d$", "", ant_str)
 
   return ant_str
@@ -118,6 +130,45 @@ with col_up1:
   xml_file = st.file_uploader("Sube el archivo XML de configuración", type=["xml"])
 with col_up2:
   xls_file = st.file_uploader("Sube el archivo Plan BSS", type=["xls", "xlsx"])
+
+# --- CASILLAS PARA ÚLTIMOS 4 DÍGITOS DEL SERIAL POR SECTOR ---
+st.subheader("🔢 Últimos 4 dígitos del Serial de Antena por Sector")
+st.info(
+    "Ingresa los últimos 4 dígitos del serial para cada sector. Estos aplicarán"
+    " a todos sus sectores equivalentes (ej. Sector 1 aplica a L1, T1, M1, S1,"
+    " R1, G1, X)."
+)
+
+col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+user_serials = {}
+with col_s1:
+  user_serials["1"] = st.text_input(
+      "Sector 1", value="", max_chars=4, placeholder="ej. 6060"
+  )
+  user_serials["5"] = st.text_input(
+      "Sector 5", value="", max_chars=4, placeholder="ej. 1234"
+  )
+with col_s2:
+  user_serials["2"] = st.text_input(
+      "Sector 2", value="", max_chars=4, placeholder="ej. 7070"
+  )
+  user_serials["6"] = st.text_input(
+      "Sector 6", value="", max_chars=4, placeholder="ej. 5678"
+  )
+with col_s3:
+  user_serials["3"] = st.text_input(
+      "Sector 3", value="", max_chars=4, placeholder="ej. 8080"
+  )
+  user_serials["7"] = st.text_input(
+      "Sector 7", value="", max_chars=4, placeholder="ej. 9012"
+  )
+with col_s4:
+  user_serials["4"] = st.text_input(
+      "Sector 4", value="", max_chars=4, placeholder="ej. 9090"
+  )
+  user_serials["8"] = st.text_input(
+      "Sector 8", value="", max_chars=4, placeholder="ej. 3456"
+  )
 
 st.divider()
 
@@ -131,6 +182,7 @@ if xml_file is not None and xls_file is not None:
 
         cells_data = {}
         antenna_mapping = {}
+        antenna_serial_mapping = {}
 
         for elem in root.iter():
           if elem.tag.endswith("managedObject"):
@@ -175,18 +227,23 @@ if xml_file is not None and xls_file is not None:
                           )
 
             ant_model = None
+            ant_serial = None
             sector_id_val = None
 
             for p in elem.findall(".//"):
               if p.tag.endswith("p") and "name" in p.attrib:
-                if p.get("name") == "antModel":
+                p_name = p.get("name")
+                if p_name == "antModel":
                   ant_model = p.text
-                elif p.get("name") == "sectorID":
+                elif p_name == "antSerial":
+                  ant_serial = p.text
+                elif p_name == "sectorID":
                   sector_id_val = p.text
 
             if ant_model and sector_id_val:
               ant_model_clean = str(ant_model).strip()
               sector_id_clean = str(sector_id_val).strip()
+              ant_serial_clean = str(ant_serial).strip() if ant_serial else ""
 
               if (
                   ant_model_clean.upper() not in ["LIBRE", "LIB_SEC"]
@@ -194,13 +251,11 @@ if xml_file is not None and xls_file is not None:
                   and sector_id_clean.upper() not in ["LIBRE", "LIB_SEC"]
                   and not sector_id_clean.upper().startswith("LIB")
               ):
-                # Soporta separación por guion (-), barra diagonal (/), o guion bajo (_)
                 parts = re.split(r"[-/_]", sector_id_clean)
                 for part in parts:
                   part = part.strip()
                   part_upper = part.upper()
 
-                  # Omitir únicamente sectores que terminan en 'B' (ej: L1B, T1B) o sectores libres
                   if (
                       not part
                       or part_upper.endswith("B")
@@ -210,6 +265,8 @@ if xml_file is not None and xls_file is not None:
                     continue
 
                   antenna_mapping[part] = ant_model_clean
+                  if ant_serial_clean:
+                    antenna_serial_mapping[part] = ant_serial_clean
 
         df_xml = pd.DataFrame(list(cells_data.values()))
 
@@ -222,13 +279,15 @@ if xml_file is not None and xls_file is not None:
           xml_dict_by_sector[r["Sector"]] = r.to_dict()
 
         for sec in all_sectors_set:
-          # Omitir sectores de la lista si terminan en B
           if str(sec).strip().upper().endswith("B"):
             continue
           d = xml_dict_by_sector.get(sec, {"Sector": sec})
           if "XML_Antena" not in d or pd.isna(d["XML_Antena"]):
             if sec in antenna_mapping:
               d["XML_Antena"] = antenna_mapping[sec]
+          if "XML_Serial" not in d or pd.isna(d["XML_Serial"]):
+            if sec in antenna_serial_mapping:
+              d["XML_Serial"] = antenna_serial_mapping[sec]
           rows_all.append(d)
 
         df_xml = pd.DataFrame(rows_all)
@@ -275,14 +334,12 @@ if xml_file is not None and xls_file is not None:
             ):
               continue
 
-            # Permite separar sectores agrupados por _, - o / (ej: L2_T2_M2)
             sector_list = re.split(r"[-/_]", raw_sector)
 
             for sector in sector_list:
               sector = sector.strip()
               sector_upper = sector.upper()
 
-              # Excluir de forma estricta los sectores terminados en 'B' (ej: L1B, T1B)
               if (
                   not sector
                   or sector_upper.endswith("B")
@@ -396,6 +453,26 @@ if xml_file is not None and xls_file is not None:
                 merged_df["Excel_Antena"].fillna("").astype(str).str.strip()
             )
 
+            merged_df["XML_Serial"] = (
+                merged_df.get("XML_Serial", pd.Series([""] * len(merged_df)))
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            # Extraer últimos 4 dígitos del serial del XML
+            merged_df["XML_Serial_Last4"] = merged_df["XML_Serial"].apply(
+                lambda s: s[-4:] if len(s) >= 4 else s
+            )
+
+            # Asignar serial ingresado por el usuario según el grupo de sector (ej. L1, T1, M1, S1 -> Grupo '1')
+            merged_df["Sector_Group"] = merged_df["Sector"].apply(
+                get_sector_group_num
+            )
+            merged_df["Ingresado_Serial_Last4"] = merged_df[
+                "Sector_Group"
+            ].apply(lambda g: user_serials.get(g, "").strip())
+
             def extract_mimo(val):
               if (
                   not val
@@ -461,6 +538,15 @@ if xml_file is not None and xls_file is not None:
               exc_p = str(row["Excel_pMax"])
               return xml_p != "" and exc_p != "" and xml_p == exc_p
 
+            def process_serial_row(row):
+              xml_s = str(row["XML_Serial_Last4"]).strip()
+              user_s = str(row["Ingresado_Serial_Last4"]).strip()
+              if not user_s:
+                return "N/A"
+              if not xml_s:
+                return False
+              return xml_s == user_s
+
             mimo_processed = merged_df.apply(process_mimo_row, axis=1)
             merged_df["XML_dlMimoMode_Disp"] = [x[0] for x in mimo_processed]
             merged_df["Excel_dlMimoMode_Disp"] = [x[1] for x in mimo_processed]
@@ -468,7 +554,6 @@ if xml_file is not None and xls_file is not None:
 
             merged_df["pMax_Igual"] = merged_df.apply(process_pmax_row, axis=1)
 
-            # Comparación con normalización de antena (maneja 84510992_Y1 vs 84510992 y RRVV-65A-R4VB01 vs RRVV-65A-R4VB)
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
@@ -476,6 +561,10 @@ if xml_file is not None and xls_file is not None:
                     merged_df["XML_Antena"].apply(normalize_antenna)
                     == merged_df["Excel_Antena"].apply(normalize_antenna)
                 )
+            )
+
+            merged_df["Serial_Igual"] = merged_df.apply(
+                process_serial_row, axis=1
             )
 
             st.session_state["merged_df"] = merged_df
@@ -510,7 +599,15 @@ if "merged_df" in st.session_state:
       (mimo_valid_df["Mimo_Igual"] == True).sum() if total_mimo_val > 0 else 0
   )
 
-  m1, m2, m3, m4 = st.columns(4)
+  serial_valid_df = merged_df[merged_df["Serial_Igual"] != "N/A"]
+  total_serial_val = len(serial_valid_df)
+  serial_aciertos = (
+      (serial_valid_df["Serial_Igual"] == True).sum()
+      if total_serial_val > 0
+      else 0
+  )
+
+  m1, m2, m3, m4, m5 = st.columns(5)
   m1.metric("Total Sectores", total_sectores)
   m2.metric(
       "pMax Coincidentes",
@@ -533,6 +630,15 @@ if "merged_df" in st.session_state:
       if total_sectores > 0
       else "0%",
   )
+  m5.metric(
+      "Seriales Coincidentes",
+      f"{serial_aciertos} / {total_serial_val}"
+      if total_serial_val > 0
+      else "N/A",
+      delta=f"{int(serial_aciertos/total_serial_val*100)}%"
+      if total_serial_val > 0
+      else "0%",
+  )
 
   st.divider()
   st.subheader("🔍 Tabla Detallada de Comparación")
@@ -549,6 +655,10 @@ if "merged_df" in st.session_state:
           "XML_Antena",
           "Excel_Antena",
           "Antena_Igual",
+          "XML_Serial",
+          "XML_Serial_Last4",
+          "Ingresado_Serial_Last4",
+          "Serial_Igual",
       ]
   ].rename(
       columns={
@@ -562,6 +672,10 @@ if "merged_df" in st.session_state:
           "XML_Antena": "XML Antena (antModel)",
           "Excel_Antena": "Excel Antena",
           "Antena_Igual": "Antena Coincide?",
+          "XML_Serial": "XML Serial Completo",
+          "XML_Serial_Last4": "XML Serial (4 Díg.)",
+          "Ingresado_Serial_Last4": "Serial Ingresado",
+          "Serial_Igual": "Serial Coincide?",
       }
   )
 
@@ -581,6 +695,7 @@ if "merged_df" in st.session_state:
         (display_table["pMax Coincide?"] == False)
         | (display_table["Antena Coincide?"] == False)
         | (display_table["MIMO Coincide?"] == False)
+        | (display_table["Serial Coincide?"] == False)
     ]
   elif filtro_opcion == "Solo coincidencias perfectas":
     display_table = display_table[
@@ -592,6 +707,10 @@ if "merged_df" in st.session_state:
         & (
             (display_table["MIMO Coincide?"] == True)
             | (display_table["MIMO Coincide?"] == "N/A")
+        )
+        & (
+            (display_table["Serial Coincide?"] == True)
+            | (display_table["Serial Coincide?"] == "N/A")
         )
     ]
 
@@ -611,7 +730,12 @@ if "merged_df" in st.session_state:
   st.dataframe(
       display_table.style.apply(
           color_matching,
-          subset=["pMax Coincide?", "MIMO Coincide?", "Antena Coincide?"],
+          subset=[
+              "pMax Coincide?",
+              "MIMO Coincide?",
+              "Antena Coincide?",
+              "Serial Coincide?",
+          ],
       ),
       use_container_width=True,
       hide_index=True,
