@@ -96,6 +96,17 @@ def get_mapped_sector(cell_key):
   return None
 
 
+# Función para normalizar nombres de antenas al comparar (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
+def normalize_antenna(ant_name):
+  if not ant_name or pd.isna(ant_name):
+    return ""
+  ant_str = str(ant_name).strip().upper()
+
+  # Si la antena termina en sufijo numérico de 2 dígitos como '01', '02', etc., se remueve
+  ant_str = re.sub(r"0\d$", "", ant_str)
+  return ant_str
+
+
 col_up1, col_up2 = st.columns(2)
 with col_up1:
   xml_file = st.file_uploader("Sube el archivo XML de configuración", type=["xml"])
@@ -408,10 +419,14 @@ if xml_file is not None and xls_file is not None:
 
             merged_df["pMax_Igual"] = merged_df.apply(process_pmax_row, axis=1)
 
+            # Comparación con normalización de antena (maneja casos como RRVV-65A-R4VB vs RRVV-65A-R4VB01)
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
-                & (merged_df["XML_Antena"] == merged_df["Excel_Antena"])
+                & (
+                    merged_df["XML_Antena"].apply(normalize_antenna)
+                    == merged_df["Excel_Antena"].apply(normalize_antenna)
+                )
             )
 
             st.session_state["merged_df"] = merged_df
