@@ -117,11 +117,8 @@ def normalize_antenna(ant_name):
   if ant_str in ["LIBRE", "LIB_SEC"] or ant_str.startswith("LIB"):
     return ""
 
-  # Remueve sufijos tras guion bajo (ej: 84510992_Y1 -> 84510992)
   ant_str = re.sub(r"_[A-Z0-9]+$", "", ant_str)
-  # Remueve sufijo de 2 dígitos al final (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
   ant_str = re.sub(r"0\d$", "", ant_str)
-
   return ant_str
 
 
@@ -135,8 +132,8 @@ with col_up2:
 st.subheader("🔢 Últimos 4 dígitos del Serial de Antena por Sector")
 st.info(
     "Ingresa los últimos 4 dígitos del serial para cada sector. Estos aplicarán"
-    " a todos sus sectores equivalentes (ej. Sector 1 aplica a L1, T1, M1, S1,"
-    " R1, G1, X)."
+    " a sus sectores equivalentes (ej. Sector 1 aplica a L1, T1, M1, S1, R1,"
+    " G1, X)."
 )
 
 col_s1, col_s2, col_s3, col_s4 = st.columns(4)
@@ -460,12 +457,10 @@ if xml_file is not None and xls_file is not None:
                 .str.strip()
             )
 
-            # Extraer últimos 4 dígitos del serial del XML
             merged_df["XML_Serial_Last4"] = merged_df["XML_Serial"].apply(
                 lambda s: s[-4:] if len(s) >= 4 else s
             )
 
-            # Asignar serial ingresado por el usuario según el grupo de sector (ej. L1, T1, M1, S1 -> Grupo '1')
             merged_df["Sector_Group"] = merged_df["Sector"].apply(
                 get_sector_group_num
             )
@@ -579,7 +574,7 @@ if xml_file is not None and xls_file is not None:
     except Exception as e:
       st.error(f"Ocurrió un error al procesar los archivos: {e}")
 
-# --- MOSTRAR RESULTADOS Y FILTROS FUERA DEL BOTÓN DE COMPARAR ---
+# --- MOSTRAR RESULTADOS VISTA OPTIMIZADA ---
 if "merged_df" in st.session_state:
   merged_df = st.session_state["merged_df"]
 
@@ -610,39 +605,24 @@ if "merged_df" in st.session_state:
   m1, m2, m3, m4, m5 = st.columns(5)
   m1.metric("Total Sectores", total_sectores)
   m2.metric(
-      "pMax Coincidentes",
+      "pMax OK",
       f"{pmax_aciertos} / {total_pmax_val}" if total_pmax_val > 0 else "N/A",
-      delta=f"{int(pmax_aciertos/total_pmax_val*100)}%"
-      if total_pmax_val > 0
-      else "0%",
   )
   m3.metric(
-      "MIMO Coincidentes",
+      "MIMO OK",
       f"{mimo_aciertos} / {total_mimo_val}" if total_mimo_val > 0 else "N/A",
-      delta=f"{int(mimo_aciertos/total_mimo_val*100)}%"
-      if total_mimo_val > 0
-      else "0%",
   )
-  m4.metric(
-      "Antenas Coincidentes",
-      f"{antena_aciertos} / {total_sectores}",
-      delta=f"{int(antena_aciertos/total_sectores*100)}%"
-      if total_sectores > 0
-      else "0%",
-  )
+  m4.metric("Antenas OK", f"{antena_aciertos} / {total_sectores}")
   m5.metric(
-      "Seriales Coincidentes",
+      "Seriales OK",
       f"{serial_aciertos} / {total_serial_val}"
       if total_serial_val > 0
       else "N/A",
-      delta=f"{int(serial_aciertos/total_serial_val*100)}%"
-      if total_serial_val > 0
-      else "0%",
   )
 
   st.divider()
-  st.subheader("🔍 Tabla Detallada de Comparación")
 
+  # Nombres de columnas compactos para evitar desbordamiento horizontal
   display_table = merged_df[
       [
           "Sector",
@@ -655,7 +635,6 @@ if "merged_df" in st.session_state:
           "XML_Antena",
           "Excel_Antena",
           "Antena_Igual",
-          "XML_Serial",
           "XML_Serial_Last4",
           "Ingresado_Serial_Last4",
           "Serial_Igual",
@@ -663,54 +642,53 @@ if "merged_df" in st.session_state:
   ].rename(
       columns={
           "Sector": "Sector",
-          "XML_pMax": "XML Power",
-          "Excel_pMax": "Excel Power",
-          "pMax_Igual": "pMax Coincide?",
+          "XML_pMax": "XML Pwr",
+          "Excel_pMax": "Excel Pwr",
+          "pMax_Igual": "Pwr OK?",
           "XML_dlMimoMode_Disp": "XML MIMO",
           "Excel_dlMimoMode_Disp": "Excel MIMO",
-          "Mimo_Igual": "MIMO Coincide?",
-          "XML_Antena": "XML Antena (antModel)",
+          "Mimo_Igual": "MIMO OK?",
+          "XML_Antena": "XML Antena",
           "Excel_Antena": "Excel Antena",
-          "Antena_Igual": "Antena Coincide?",
-          "XML_Serial": "XML Serial Completo",
-          "XML_Serial_Last4": "XML Serial (4 Díg.)",
-          "Ingresado_Serial_Last4": "Serial Ingresado",
-          "Serial_Igual": "Serial Coincide?",
+          "Antena_Igual": "Antena OK?",
+          "XML_Serial_Last4": "XML 4Dig",
+          "Ingresado_Serial_Last4": "Digitado",
+          "Serial_Igual": "Serial OK?",
       }
   )
 
   # --- FILTROS INTERACTIVOS ---
   filtro_opcion = st.radio(
-      "Filtrar filas de la tabla:",
+      "Filtrar resultados:",
       [
           "Mostrar todos",
-          "Solo con discrepancias (Errores)",
+          "Solo con errores (discrepancias)",
           "Solo coincidencias perfectas",
       ],
       horizontal=True,
   )
 
-  if filtro_opcion == "Solo con discrepancias (Errores)":
+  if filtro_opcion == "Solo con errores (discrepancias)":
     display_table = display_table[
-        (display_table["pMax Coincide?"] == False)
-        | (display_table["Antena Coincide?"] == False)
-        | (display_table["MIMO Coincide?"] == False)
-        | (display_table["Serial Coincide?"] == False)
+        (display_table["Pwr OK?"] == False)
+        | (display_table["Antena OK?"] == False)
+        | (display_table["MIMO OK?"] == False)
+        | (display_table["Serial OK?"] == False)
     ]
   elif filtro_opcion == "Solo coincidencias perfectas":
     display_table = display_table[
         (
-            (display_table["pMax Coincide?"] == True)
-            | (display_table["pMax Coincide?"] == "N/A")
+            (display_table["Pwr OK?"] == True)
+            | (display_table["Pwr OK?"] == "N/A")
         )
-        & (display_table["Antena Coincide?"] == True)
+        & (display_table["Antena OK?"] == True)
         & (
-            (display_table["MIMO Coincide?"] == True)
-            | (display_table["MIMO Coincide?"] == "N/A")
+            (display_table["MIMO OK?"] == True)
+            | (display_table["MIMO OK?"] == "N/A")
         )
         & (
-            (display_table["Serial Coincide?"] == True)
-            | (display_table["Serial Coincide?"] == "N/A")
+            (display_table["Serial OK?"] == True)
+            | (display_table["Serial OK?"] == "N/A")
         )
     ]
 
@@ -719,27 +697,67 @@ if "merged_df" in st.session_state:
     colors = []
     for val in col:
       if val is True:
-        colors.append("background-color: #d4edda")
+        colors.append("background-color: #d4edda; color: #155724")
       elif val is False:
-        colors.append("background-color: #f8d7da")
+        colors.append("background-color: #f8d7da; color: #721c24")
       else:
         colors.append("")
     return colors
 
 
-  st.dataframe(
-      display_table.style.apply(
-          color_matching,
-          subset=[
-              "pMax Coincide?",
-              "MIMO Coincide?",
-              "Antena Coincide?",
-              "Serial Coincide?",
-          ],
-      ),
-      use_container_width=True,
-      hide_index=True,
+  # --- ORGANIZACIÓN DE TABLAS POR PESTAÑAS (EVITA LA BARRA LATERAL) ---
+  st.subheader("🔍 Resultados Detallados por Categoría")
+  tab_pwr, tab_ant, tab_full = st.tabs(
+      ["⚡ Potencia & MIMO", "📡 Antena & Seriales", "📋 Vista Completa"]
   )
+
+  with tab_pwr:
+    cols_pwr = [
+        "Sector",
+        "XML Pwr",
+        "Excel Pwr",
+        "Pwr OK?",
+        "XML MIMO",
+        "Excel MIMO",
+        "MIMO OK?",
+    ]
+    df_pwr = display_table[cols_pwr]
+    st.dataframe(
+        df_pwr.style.apply(
+            color_matching, subset=["Pwr OK?", "MIMO OK?"]
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+  with tab_ant:
+    cols_ant = [
+        "Sector",
+        "XML Antena",
+        "Excel Antena",
+        "Antena OK?",
+        "XML 4Dig",
+        "Digitado",
+        "Serial OK?",
+    ]
+    df_ant = display_table[cols_ant]
+    st.dataframe(
+        df_ant.style.apply(
+            color_matching, subset=["Antena OK?", "Serial OK?"]
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+  with tab_full:
+    st.dataframe(
+        display_table.style.apply(
+            color_matching,
+            subset=["Pwr OK?", "MIMO OK?", "Antena OK?", "Serial OK?"],
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
 
   st.divider()
   st.subheader("📥 Descargar Reporte")
