@@ -642,13 +642,13 @@ if "merged_df" in st.session_state:
       columns={
           "Sector": "Sector",
           "XML_pMax": "XML Pwr",
-          "Excel_pMax": "Excel Pwr",
+          "Excel_pMax": "SD Pwr",
           "pMax_Igual": "Pwr OK?",
           "XML_dlMimoMode_Disp": "XML MIMO",
-          "Excel_dlMimoMode_Disp": "Excel MIMO",
+          "Excel_dlMimoMode_Disp": "SD MIMO",
           "Mimo_Igual": "MIMO OK?",
           "XML_Antena": "XML Antena",
-          "Excel_Antena": "Excel Antena",
+          "Excel_Antena": "SD Antena",
           "Antena_Igual": "Antena OK?",
           "XML_Serial_Last4": "XML 4Dig",
           "Ingresado_Serial_Last4": "Digitado",
@@ -714,10 +714,10 @@ if "merged_df" in st.session_state:
     cols_pwr = [
         "Sector",
         "XML Pwr",
-        "Excel Pwr",
+        "SD Pwr",
         "Pwr OK?",
         "XML MIMO",
-        "Excel MIMO",
+        "SD MIMO",
         "MIMO OK?",
     ]
     df_pwr = display_table[cols_pwr]
@@ -733,7 +733,7 @@ if "merged_df" in st.session_state:
     cols_ant = [
         "Sector",
         "XML Antena",
-        "Excel Antena",
+        "SD Antena",
         "Antena OK?",
         "XML 4Dig",
         "Digitado",
