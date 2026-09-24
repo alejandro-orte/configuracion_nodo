@@ -96,14 +96,14 @@ def get_mapped_sector(cell_key):
   return None
 
 
-# Función para obtener el número de grupo de sector (ej: L1, T1, M1, S1, R1, G1, X -> 1)
+# Función para obtener el número de grupo de sector (ej: 1, L1, T1, M1, S1, R1, G1, X -> '1')
 def get_sector_group_num(sector_str):
   sec = str(sector_str).strip().upper()
-  if sec == "X":
+  if sec in ["X", "1"]:
     return "1"
-  if sec == "Y":
+  if sec in ["Y", "2"]:
     return "2"
-  if sec == "Z":
+  if sec in ["Z", "3"]:
     return "3"
   m = re.search(r"\d+", sec)
   return m.group(0) if m else sec
@@ -132,8 +132,8 @@ with col_up2:
 st.subheader("🔢 Últimos 4 dígitos del Serial de Antena por Sector")
 st.info(
     "Ingresa los últimos 4 dígitos del serial para cada sector. Estos aplicarán"
-    " a sus sectores equivalentes (ej. Sector 1 aplica a L1, T1, M1, S1, R1,"
-    " G1, X)."
+    " a sus sectores equivalentes (ej. Sector 1 aplica a 1, L1, T1, M1, S1, R1,"
+    " G1, X, etc.)."
 )
 
 col_s1, col_s2, col_s3, col_s4 = st.columns(4)
@@ -622,7 +622,6 @@ if "merged_df" in st.session_state:
 
   st.divider()
 
-  # Nombres de columnas compactos para evitar desbordamiento horizontal
   display_table = merged_df[
       [
           "Sector",
@@ -705,7 +704,7 @@ if "merged_df" in st.session_state:
     return colors
 
 
-  # --- ORGANIZACIÓN DE TABLAS POR PESTAÑAS (EVITA LA BARRA LATERAL) ---
+  # --- ORGANIZACIÓN DE TABLAS POR PESTAÑAS ---
   st.subheader("🔍 Resultados Detallados por Categoría")
   tab_pwr, tab_ant, tab_full = st.tabs(
       ["⚡ Potencia & MIMO", "📡 Antena & Seriales", "📋 Vista Completa"]
