@@ -96,7 +96,7 @@ def get_mapped_sector(cell_key):
   return None
 
 
-# Función para normalizar nombres de antenas al comparar (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
+# Función para normalizar nombres de antenas al comparar
 def normalize_antenna(ant_name):
   if not ant_name or pd.isna(ant_name):
     return ""
@@ -104,8 +104,12 @@ def normalize_antenna(ant_name):
   if ant_str in ["LIBRE", "LIB_SEC"] or ant_str.startswith("LIB"):
     return ""
 
-  # Remueve sufijo de 2 dígitos al final (ej: '01')
+  # 1. Remueve sufijos tras guion bajo (ej: 84510992_Y1 -> 84510992)
+  ant_str = re.sub(r"_[A-Z0-9]+$", "", ant_str)
+
+  # 2. Remueve sufijo de 2 dígitos al final (ej: RRVV-65A-R4VB01 -> RRVV-65A-R4VB)
   ant_str = re.sub(r"0\d$", "", ant_str)
+
   return ant_str
 
 
@@ -195,7 +199,8 @@ if xml_file is not None and xls_file is not None:
                 for part in parts:
                   part = part.strip()
                   part_upper = part.upper()
-                  # Omitir sectores que terminan en 'B' (ej: L1B) o que indican sectores libres
+
+                  # Omitir únicamente sectores que terminan en 'B' (ej: L1B, T1B) o sectores libres
                   if (
                       not part
                       or part_upper.endswith("B")
@@ -217,6 +222,9 @@ if xml_file is not None and xls_file is not None:
           xml_dict_by_sector[r["Sector"]] = r.to_dict()
 
         for sec in all_sectors_set:
+          # Omitir sectores de la lista si terminan en B
+          if str(sec).strip().upper().endswith("B"):
+            continue
           d = xml_dict_by_sector.get(sec, {"Sector": sec})
           if "XML_Antena" not in d or pd.isna(d["XML_Antena"]):
             if sec in antenna_mapping:
@@ -267,14 +275,14 @@ if xml_file is not None and xls_file is not None:
             ):
               continue
 
-            # Permite separar sectores en caso de estar agrupados por _, - o / (ej: L2_T2_M2)
+            # Permite separar sectores agrupados por _, - o / (ej: L2_T2_M2)
             sector_list = re.split(r"[-/_]", raw_sector)
 
             for sector in sector_list:
               sector = sector.strip()
               sector_upper = sector.upper()
 
-              # Ignorar si termina en 'B' (ej: L1B, L2B) o si es un sector libre
+              # Excluir de forma estricta los sectores terminados en 'B' (ej: L1B, T1B)
               if (
                   not sector
                   or sector_upper.endswith("B")
@@ -328,12 +336,13 @@ if xml_file is not None and xls_file is not None:
                 })
                 if sector.startswith("L"):
                   t_sector = "T" + sector[1:]
-                  expanded_rows.append({
-                      "Sector": t_sector,
-                      "Excel_pMax": p2,
-                      "Excel_dlMimoMode": mimo_val,
-                      "Excel_Antena": antena_val,
-                  })
+                  if not t_sector.endswith("B"):
+                    expanded_rows.append({
+                        "Sector": t_sector,
+                        "Excel_pMax": p2,
+                        "Excel_dlMimoMode": mimo_val,
+                        "Excel_Antena": antena_val,
+                    })
               else:
                 clean_p = (
                     ""
@@ -459,7 +468,7 @@ if xml_file is not None and xls_file is not None:
 
             merged_df["pMax_Igual"] = merged_df.apply(process_pmax_row, axis=1)
 
-            # Comparación con normalización de antena
+            # Comparación con normalización de antena (maneja 84510992_Y1 vs 84510992 y RRVV-65A-R4VB01 vs RRVV-65A-R4VB)
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
