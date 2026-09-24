@@ -101,8 +101,10 @@ def normalize_antenna(ant_name):
   if not ant_name or pd.isna(ant_name):
     return ""
   ant_str = str(ant_name).strip().upper()
+  if ant_str in ["LIBRE", "LIB_SEC"] or ant_str.startswith("LIB"):
+    return ""
 
-  # Si la antena termina en sufijo numérico de 2 dígitos como '01', '02', etc., se remueve
+  # Remueve sufijo de 2 dígitos al final (ej: '01')
   ant_str = re.sub(r"0\d$", "", ant_str)
   return ant_str
 
@@ -153,7 +155,9 @@ if xml_file is not None and xls_file is not None:
                       param_val = p.text
                       if (
                           param_val
-                          and str(param_val).strip().upper() != "LIBRE"
+                          and str(param_val).strip().upper()
+                          not in ["LIBRE", "LIB_SEC"]
+                          and not str(param_val).strip().upper().startswith("LIB")
                       ):
                         if param_name in [
                             "pMax",
@@ -177,18 +181,30 @@ if xml_file is not None and xls_file is not None:
                   sector_id_val = p.text
 
             if ant_model and sector_id_val:
+              ant_model_clean = str(ant_model).strip()
+              sector_id_clean = str(sector_id_val).strip()
+
               if (
-                  str(ant_model).strip().upper() != "LIBRE"
-                  and str(sector_id_val).strip().upper() != "LIBRE"
+                  ant_model_clean.upper() not in ["LIBRE", "LIB_SEC"]
+                  and not ant_model_clean.upper().startswith("LIB")
+                  and sector_id_clean.upper() not in ["LIBRE", "LIB_SEC"]
+                  and not sector_id_clean.upper().startswith("LIB")
               ):
-                # Soporta separación por guion (-) o barra diagonal (/)
-                parts = re.split(r"[-/]", str(sector_id_val))
+                # Soporta separación por guion (-), barra diagonal (/), o guion bajo (_)
+                parts = re.split(r"[-/_]", sector_id_clean)
                 for part in parts:
                   part = part.strip()
-                  if part.endswith("B") or part.endswith("b"):
-                    part = part[:-1]
-                  if part:
-                    antenna_mapping[part] = str(ant_model).strip()
+                  part_upper = part.upper()
+                  # Omitir sectores que terminan en 'B' (ej: L1B) o que indican sectores libres
+                  if (
+                      not part
+                      or part_upper.endswith("B")
+                      or part_upper in ["LIBRE", "LIB_SEC"]
+                      or part_upper.startswith("LIB")
+                  ):
+                    continue
+
+                  antenna_mapping[part] = ant_model_clean
 
         df_xml = pd.DataFrame(list(cells_data.values()))
 
@@ -242,71 +258,94 @@ if xml_file is not None and xls_file is not None:
 
           expanded_rows = []
           for _, row in df_xls.iterrows():
-            sector = str(row["sector"]).strip()
-            power_val = row["power"]
-            power_str = "" if pd.isna(power_val) else str(power_val).strip()
+            raw_sector = str(row["sector"]).strip()
 
-            mimo_val = ""
-            if mimo_col:
-              val = row[mimo_col]
-              if pd.notna(val):
-                mimo_val = str(val).strip()
+            if (
+                not raw_sector
+                or raw_sector.upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                or raw_sector.upper().startswith("LIB")
+            ):
+              continue
 
-            antena_val = ""
-            if antena_col:
-              val_ant = row[antena_col]
-              if pd.notna(val_ant):
-                antena_val = str(val_ant).strip()
-                if antena_val.upper() == "LIBRE":
-                  antena_val = ""
+            # Permite separar sectores en caso de estar agrupados por _, - o / (ej: L2_T2_M2)
+            sector_list = re.split(r"[-/_]", raw_sector)
 
-            if "&" in power_str:
-              powers = [
-                  p.strip().replace(".", "").replace(",", "")
-                  for p in power_str.split("&")
-              ]
-              p1 = (
-                  ""
-                  if str(powers[0]).upper() == "LIBRE"
-                  or str(powers[0]).upper() == "NAN"
-                  else powers[0]
-              )
-              p2 = (
-                  ""
-                  if len(powers) > 1
-                  and (
-                      str(powers[1]).upper() == "LIBRE"
-                      or str(powers[1]).upper() == "NAN"
-                  )
-                  else (powers[1] if len(powers) > 1 else "")
-              )
+            for sector in sector_list:
+              sector = sector.strip()
+              sector_upper = sector.upper()
 
-              expanded_rows.append({
-                  "Sector": sector,
-                  "Excel_pMax": p1,
-                  "Excel_dlMimoMode": mimo_val,
-                  "Excel_Antena": antena_val,
-              })
-              if sector.startswith("L"):
-                t_sector = "T" + sector[1:]
+              # Ignorar si termina en 'B' (ej: L1B, L2B) o si es un sector libre
+              if (
+                  not sector
+                  or sector_upper.endswith("B")
+                  or sector_upper in ["LIBRE", "LIB_SEC", "NAN"]
+                  or sector_upper.startswith("LIB")
+              ):
+                continue
+
+              power_val = row["power"]
+              power_str = "" if pd.isna(power_val) else str(power_val).strip()
+
+              mimo_val = ""
+              if mimo_col:
+                val = row[mimo_col]
+                if pd.notna(val):
+                  mimo_val = str(val).strip()
+
+              antena_val = ""
+              if antena_col:
+                val_ant = row[antena_col]
+                if pd.notna(val_ant):
+                  antena_val = str(val_ant).strip()
+                  if (
+                      antena_val.upper() in ["LIBRE", "LIB_SEC"]
+                      or antena_val.upper().startswith("LIB")
+                  ):
+                    antena_val = ""
+
+              if "&" in power_str:
+                powers = [
+                    p.strip().replace(".", "").replace(",", "")
+                    for p in power_str.split("&")
+                ]
+                p1 = (
+                    ""
+                    if str(powers[0]).upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                    else powers[0]
+                )
+                p2 = (
+                    ""
+                    if len(powers) > 1
+                    and str(powers[1]).upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                    else (powers[1] if len(powers) > 1 else "")
+                )
+
                 expanded_rows.append({
-                    "Sector": t_sector,
-                    "Excel_pMax": p2,
+                    "Sector": sector,
+                    "Excel_pMax": p1,
                     "Excel_dlMimoMode": mimo_val,
                     "Excel_Antena": antena_val,
                 })
-            else:
-              clean_p = (
-                  ""
-                  if power_str.upper() == "LIBRE" or power_str.upper() == "NAN"
-                  else power_str.replace(".", "").replace(",", "")
-              )
-              expanded_rows.append({
-                  "Sector": sector,
-                  "Excel_pMax": clean_p,
-                  "Excel_dlMimoMode": mimo_val,
-                  "Excel_Antena": antena_val,
-              })
+                if sector.startswith("L"):
+                  t_sector = "T" + sector[1:]
+                  expanded_rows.append({
+                      "Sector": t_sector,
+                      "Excel_pMax": p2,
+                      "Excel_dlMimoMode": mimo_val,
+                      "Excel_Antena": antena_val,
+                  })
+              else:
+                clean_p = (
+                    ""
+                    if power_str.upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                    else power_str.replace(".", "").replace(",", "")
+                )
+                expanded_rows.append({
+                    "Sector": sector,
+                    "Excel_pMax": clean_p,
+                    "Excel_dlMimoMode": mimo_val,
+                    "Excel_Antena": antena_val,
+                })
 
           df_plan = pd.DataFrame(expanded_rows).drop_duplicates(
               subset=["Sector"]
@@ -329,7 +368,8 @@ if xml_file is not None and xls_file is not None:
             merged_df["XML_pMax"] = merged_df["XML_pMax"].apply(
                 lambda x: (
                     ""
-                    if str(x).upper() == "LIBRE" or str(x).upper() == "NAN"
+                    if str(x).upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                    or str(x).upper().startswith("LIB")
                     else (x[:-1] if isinstance(x, str) and x.endswith("0") else x)
                 )
             )
@@ -351,8 +391,8 @@ if xml_file is not None and xls_file is not None:
               if (
                   not val
                   or pd.isna(val)
-                  or str(val).upper() == "LIBRE"
-                  or str(val).upper() == "NAN"
+                  or str(val).upper() in ["LIBRE", "LIB_SEC", "NAN"]
+                  or str(val).upper().startswith("LIB")
               ):
                 return ""
               val_str = str(val).lower().strip()
@@ -419,7 +459,7 @@ if xml_file is not None and xls_file is not None:
 
             merged_df["pMax_Igual"] = merged_df.apply(process_pmax_row, axis=1)
 
-            # Comparación con normalización de antena (maneja casos como RRVV-65A-R4VB vs RRVV-65A-R4VB01)
+            # Comparación con normalización de antena
             merged_df["Antena_Igual"] = (
                 (merged_df["XML_Antena"] != "")
                 & (merged_df["Excel_Antena"] != "")
