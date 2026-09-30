@@ -7,14 +7,14 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Validador XML vs Plan BSS",
-    page_icon="📡",
+    page_icon="馃摗",
     layout="wide",
 )
 
-st.title("📡 Validador y Comparador: XML vs Plan BSS")
+st.title("馃摗 Validador y Comparador: XML vs Plan BSS")
 
 
-# Parser nativo de HTML usando solo bibliotecas estándar de Python
+# Parser nativo de HTML usando solo bibliotecas est谩ndar de Python
 class HTMLTableParser(HTMLParser):
 
   def __init__(self):
@@ -55,7 +55,7 @@ class HTMLTableParser(HTMLParser):
       self.current_cell.append(data)
 
 
-# Función de mapeo inteligente de sectores
+# Funci贸n de mapeo inteligente de sectores
 def get_mapped_sector(cell_key):
   match_g = re.match(r"GNCEL-(\d+)", cell_key)
   if match_g:
@@ -96,7 +96,7 @@ def get_mapped_sector(cell_key):
   return None
 
 
-# Función para obtener el número de grupo de sector (ej: 1, L1, T1, M1, S1, R1, G1, X -> '1')
+# Funci贸n para obtener el n煤mero de grupo de sector (ej: 1, L1, T1, M1, S1, R1, G1, X -> '1')
 def get_sector_group_num(sector_str):
   sec = str(sector_str).strip().upper()
   if sec in ["X", "1"]:
@@ -109,7 +109,7 @@ def get_sector_group_num(sector_str):
   return m.group(0) if m else sec
 
 
-# Función para normalizar nombres de antenas al comparar
+# Funci贸n para normalizar nombres de antenas al comparar
 def normalize_antenna(ant_name):
   if not ant_name or pd.isna(ant_name):
     return ""
@@ -119,19 +119,20 @@ def normalize_antenna(ant_name):
 
   ant_str = re.sub(r"_[A-Z0-9]+$", "", ant_str)
   ant_str = re.sub(r"0\d$", "", ant_str)
+  ant_str = ant_str.replace("-", "")
   return ant_str
 
 
 col_up1, col_up2 = st.columns(2)
 with col_up1:
-  xml_file = st.file_uploader("Sube el archivo XML de configuración", type=["xml"])
+  xml_file = st.file_uploader("Sube el archivo XML de configuraci贸n", type=["xml"])
 with col_up2:
   xls_file = st.file_uploader("Sube el archivo Plan BSS", type=["xls", "xlsx"])
 
-# --- CASILLAS PARA ÚLTIMOS 4 DÍGITOS DEL SERIAL POR SECTOR ---
-st.subheader("🔢 Últimos 4 dígitos del Serial de Antena por Sector")
+# --- CASILLAS PARA 脷LTIMOS 4 D脥GITOS DEL SERIAL POR SECTOR ---
+st.subheader("馃敘 脷ltimos 4 d铆gitos del Serial de Antena por Sector")
 st.info(
-    "Ingresa los últimos 4 dígitos del serial para cada sector. Estos aplicarán"
+    "Ingresa los 煤ltimos 4 d铆gitos del serial para cada sector. Estos aplicar谩n"
     " a sus sectores equivalentes (ej. Sector 1 aplica a 1, L1, T1, M1, S1, R1,"
     " G1, X, etc.)."
 )
@@ -170,7 +171,7 @@ with col_s4:
 st.divider()
 
 if xml_file is not None and xls_file is not None:
-  if st.button("🚀 Comparar", type="primary"):
+  if st.button("馃殌 Comparar", type="primary"):
     try:
       with st.spinner("Procesando y comparando archivos..."):
         # 1. Parsear XML
@@ -365,10 +366,11 @@ if xml_file is not None and xls_file is not None:
                   ):
                     antena_val = ""
 
-              if "&" in power_str:
+# NUEVO: Buscar tanto '&' como '/' para separar los valores
+              if "&" in power_str or "/" in power_str:
                 powers = [
                     p.strip().replace(".", "").replace(",", "")
-                    for p in power_str.split("&")
+                    for p in re.split(r'[&/]', power_str)
                 ]
                 p1 = (
                     ""
@@ -398,6 +400,7 @@ if xml_file is not None and xls_file is not None:
                         "Excel_Antena": antena_val,
                     })
               else:
+                  
                 clean_p = (
                     ""
                     if power_str.upper() in ["LIBRE", "LIB_SEC", "NAN"]
@@ -563,7 +566,7 @@ if xml_file is not None and xls_file is not None:
             )
 
             st.session_state["merged_df"] = merged_df
-            st.success("¡Comparación completada con éxito!")
+            st.success("隆Comparaci贸n completada con 茅xito!")
 
         else:
           st.error(
@@ -572,13 +575,13 @@ if xml_file is not None and xls_file is not None:
           )
 
     except Exception as e:
-      st.error(f"Ocurrió un error al procesar los archivos: {e}")
+      st.error(f"Ocurri贸 un error al procesar los archivos: {e}")
 
 # --- MOSTRAR RESULTADOS VISTA OPTIMIZADA ---
 if "merged_df" in st.session_state:
   merged_df = st.session_state["merged_df"]
 
-  st.subheader("📊 Resumen Ejecutivo")
+  st.subheader("馃搳 Resumen Ejecutivo")
   total_sectores = len(merged_df)
   antena_aciertos = merged_df["Antena_Igual"].sum()
 
@@ -704,10 +707,10 @@ if "merged_df" in st.session_state:
     return colors
 
 
-  # --- ORGANIZACIÓN DE TABLAS POR PESTAÑAS ---
-  st.subheader("🔍 Resultados Detallados por Categoría")
+  # --- ORGANIZACI脫N DE TABLAS POR PESTA脩AS ---
+  st.subheader("馃攳 Resultados Detallados por Categor铆a")
   tab_pwr, tab_ant, tab_full = st.tabs(
-      ["⚡ Potencia & MIMO", "📡 Antena & Seriales", "📋 Vista Completa"]
+      ["鈿?Potencia & MIMO", "馃摗 Antena & Seriales", "馃搵 Vista Completa"]
   )
 
   with tab_pwr:
@@ -759,10 +762,10 @@ if "merged_df" in st.session_state:
     )
 
   st.divider()
-  st.subheader("📥 Descargar Reporte")
+  st.subheader("馃摜 Descargar Reporte")
   csv_data = display_table.to_csv(index=False).encode("utf-8")
   st.download_button(
-      label="📥 Descargar Reporte Filtrado en CSV",
+      label="馃摜 Descargar Reporte Filtrado en CSV",
       data=csv_data,
       file_name="comparacion_xml_planbss.csv",
       mime="text/csv",
@@ -770,6 +773,6 @@ if "merged_df" in st.session_state:
 
 else:
   st.info(
-      "Por favor, sube ambos archivos (el XML de configuración y el Plan BSS) y"
-      " haz clic en el botón **Comparar**."
+      "Por favor, sube ambos archivos (el XML de configuraci贸n y el Plan BSS) y"
+      " haz clic en el bot贸n **Comparar**."
   )
